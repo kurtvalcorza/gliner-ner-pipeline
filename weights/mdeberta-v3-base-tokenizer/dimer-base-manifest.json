@@ -1,0 +1,31 @@
+{
+  "format": "dimer_hf_snapshot",
+  "formatVersion": 1,
+  "modelKey": "mdeberta-v3-base-tokenizer",
+  "modelId": "microsoft/mdeberta-v3-base",
+  "revision": "a0484667b22365f84929a935b5e50a51f71f159d",
+  "role": "encoder-tokenizer-and-config for gliner-multi-v2.1 (no weights)",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 3667,
+      "sha256": "90d5e535e04fc9ac4f39336ed33c1adc7d0136b8ce3bbe211c18a0d47b72342f"
+    },
+    {
+      "path": "config.json",
+      "bytes": 579,
+      "sha256": "bcffcd343dc5efa5ef2d5a58d2b405eed108f01cc45b48d0a907b333ec41801f"
+    },
+    {
+      "path": "spm.model",
+      "bytes": 4305025,
+      "sha256": "13c8d666d62a7bc4ac8f040aab68e942c861f93303156cc28f5c7e885d86d6e3"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "bytes": 52,
+      "sha256": "3f3978e0c036f2c2588cac34a6047cbb0af0b0dc1814254e291028529805496d"
+    }
+  ],
+  "totalBytes": 4309323
+}

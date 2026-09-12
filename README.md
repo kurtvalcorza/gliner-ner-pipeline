@@ -47,9 +47,15 @@ pytest -q -o addopts= tests
 
 Tests are offline: they use an injected fake runner and temporary manifests (both kinds), never the weights.
 
+## Tutorial
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kurtvalcorza/gliner-ner-pipeline/blob/main/tutorials/gliner_ner_colab.ipynb)
+
+`tutorials/gliner_ner_colab.ipynb` is declared `TASK-INFERENCE` (see `tutorials/README.md`). Its default path authors a synthetic sentence and a four-type label set, surfaces `MAX_TEXT_CHARS`/`MAX_LABELS` and the threshold semantics, stages the missing GLiNER weight file with `stage_missing_files(..., allow_download=True)` and the encoder assets with `stage_missing_encoder_files(..., allow_download=True)`, digest-verifies both with `verify_snapshot`/`verify_encoder_snapshot`, detects entities through the public API, and exports the spans with offsets and scores plus provenance JSON carrying both identities. No metric is reported unless the learner pastes gold annotations, in which case `entity_f1` is applied. BYOD is optional and gated off by default.
+
 ## Release status
 
-**Candidate / source-complete** (`STATUS.md`). Card pass only; both snapshots verify and one CPU smoke ran (five entities, 14.6 s); no tutorial notebook yet.
+**Candidate.** Static/unit checks do not constitute clean-runtime notebook evidence. Complete `docs/release-verification.md` against the exact release revision before calling the notebook release-grade.
 
 ## Licensing
 

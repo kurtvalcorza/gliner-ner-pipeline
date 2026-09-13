@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -141,6 +141,160 @@ def entity_f1(predicted: Sequence[dict[str, Any]], gold: Sequence[dict[str, Any]
     return {"precision": precision, "recall": recall, "f1": f1, "hits": hits}
 
 
+INPUT_SCHEMA: dict[str, Any] = {
+    "input": "one text string plus 1..MAX_LABELS unique, non-empty, caller-supplied entity-type labels",
+    "text_chars": [1, MAX_TEXT_CHARS],
+    "labels": [1, MAX_LABELS],
+    "label_chars": [1, MAX_LABEL_CHARS],
+    "threshold": [0.0, 1.0],
+    "preprocessing": (
+        "the gliner library tokenizes with the pinned mDeBERTa-v3 tokenizer and truncates at "
+        "gliner_config.json max_len = 384 words, so text beyond that is silently cut; returned spans are "
+        "character offsets into the exact string you passed"
+    ),
+}
+
+
+def _check_inputs(text: Any, labels: Any, threshold: Any) -> tuple[str, list[str], float]:
+    """Raise TypeError/ValueError naming the first violated ceiling; return the checked request.
+
+    ``GLiNERPipeline.detect`` and ``validate_inputs`` both route through this function so their
+    acceptance criteria cannot diverge.
+    """
+    if not isinstance(text, str):
+        raise TypeError(f"text must be str, got {type(text).__name__}")
+    if not text.strip():
+        raise ValueError("text is empty")
+    if len(text) > MAX_TEXT_CHARS:
+        raise ValueError(f"text has {len(text)} chars; ceiling is {MAX_TEXT_CHARS} (chunk it first)")
+    if isinstance(labels, str | bytes) or not isinstance(labels, Sequence):
+        raise TypeError("labels must be a list of str")
+    if not 1 <= len(labels) <= MAX_LABELS:
+        raise ValueError(f"labels must hold 1..{MAX_LABELS} items, got {len(labels)}")
+    for i, label in enumerate(labels):
+        if not isinstance(label, str) or not label.strip():
+            raise TypeError(f"labels[{i}] must be a non-empty str")
+        if len(label) > MAX_LABEL_CHARS:
+            raise ValueError(f"labels[{i}] has {len(label)} chars; ceiling is {MAX_LABEL_CHARS}")
+    if len(set(labels)) != len(labels):
+        raise ValueError("labels must be unique")
+    bad_type = isinstance(threshold, bool) or not isinstance(threshold, int | float)
+    if bad_type or not 0.0 <= threshold <= 1.0:
+        raise ValueError("threshold must be a number in [0, 1]")
+    return text, list(labels), float(threshold)
+
+
+def validate_inputs(
+    text: str,
+    labels: Sequence[str],
+    threshold: float = DEFAULT_THRESHOLD,
+    *,
+    names: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Validation stage: return the input manifest (schema, observations, request, verdict).
+
+    Rejection is reported by raising exactly as ``detect`` would; a caller that wants the finding
+    recorded catches the exception and stores ``str(exc)`` under ``findings``. Both pinned snapshot
+    identities are recorded, because this pipeline verifies two (GLiNER and its mDeBERTa encoder).
+    """
+    checked_text, checked_labels, checked_threshold = _check_inputs(text, labels, threshold)
+    if names is not None and len(names) != 1:
+        raise ValueError("names must have exactly one entry (detect takes one text)")
+    return {
+        "schema": dict(INPUT_SCHEMA),
+        "inputs": [
+            {
+                "id": names[0] if names else "text-0",
+                "chars": len(checked_text),
+                "words": len(checked_text.split()),
+            }
+        ],
+        "labels": checked_labels,
+        "threshold": checked_threshold,
+        "verdict": "accepted",
+        "findings": [],
+        "model_id": MODEL_ID,
+        "model_revision": MODEL_REVISION,
+        "encoder_model_id": ENCODER_MODEL_ID,
+        "encoder_revision": ENCODER_REVISION,
+    }
+
+
+def evaluation_report(
+    result: Mapping[str, Any],
+    gold: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    sample_kind: str = "synthetic",
+) -> dict[str, Any]:
+    """Evaluation stage: a machine-readable report even when nothing is measurable.
+
+    With ``gold`` spans — dicts carrying ``start``, ``end`` and ``label`` — the report carries the
+    repository's ``entity_f1`` (exact-span micro precision/recall/F1) as sample-sanity evidence;
+    without them the verdict is ``not-measurable`` and the report says what labelled data would make
+    the task measurable.
+    """
+    entities = list(result["entities"])
+    base = {
+        "task": "zero-shot named-entity recognition with a caller-supplied label set",
+        "decision_rule": (
+            f"a span is kept when its score reaches the caller's threshold "
+            f"(default DEFAULT_THRESHOLD={DEFAULT_THRESHOLD}); the pipeline ships no tuned operating point"
+        ),
+        "score_semantics": (
+            "each entity score is the model's own uncalibrated span score, not a probability that the "
+            "span is correct"
+        ),
+        "threshold": result.get("threshold", DEFAULT_THRESHOLD),
+        "labels": list(result.get("labels", [])),
+        "sample_kind": sample_kind,
+        "n_entities": len(entities),
+        "baselines": [],
+        "model_id": MODEL_ID,
+        "model_revision": MODEL_REVISION,
+        "encoder_model_id": ENCODER_MODEL_ID,
+        "encoder_revision": ENCODER_REVISION,
+    }
+    if gold is None:
+        return {
+            **base,
+            "metrics": [],
+            "verdict": "not-measurable",
+            "reason": "no gold spans were supplied for the evaluated text",
+            "needs": (
+                "gold (start, end, label) spans over the same label set on text from your domain, scored "
+                "with entity_f1 across enough documents to state a dispersion; exact-span matching also "
+                "requires the annotation guideline to agree with the model's span boundaries"
+            ),
+        }
+    gold_spans = list(gold)
+    scores = entity_f1(entities, gold_spans)
+    return {
+        **base,
+        "metrics": [
+            {
+                "id": "entity_f1",
+                "value": scores["f1"],
+                "precision": scores["precision"],
+                "recall": scores["recall"],
+                "hits": scores["hits"],
+                "n_predicted": len(entities),
+                "n_gold": len(gold_spans),
+                "matching": "exact (start, end, label) triple",
+                "estimation": "one text, no dispersion estimate",
+            }
+        ],
+        "verdict": "sample-sanity",
+        "reason": (
+            f"{len(gold_spans)} gold span(s) on one tutorial text; exact-span sanity evidence, not an "
+            "NER benchmark"
+        ),
+        "needs": (
+            "a labelled span set from the deployment domain, with the same label vocabulary and the same "
+            "boundary convention, for any generalisable precision/recall/F1 claim"
+        ),
+    }
+
+
 def _local_encoder_class(root: Path, encoder_dir: Path) -> type:
     """The concrete GLiNER class for this config, with `model_name` redirected to the verified encoder
     directory so the library reads the tokenizer and AutoConfig from disk (local_files_only, no cache)."""
@@ -215,28 +369,8 @@ class GLiNERPipeline:
         threshold: float = DEFAULT_THRESHOLD,
     ) -> dict[str, Any]:
         """Extract spans for the caller-supplied `labels`; `threshold` is the upstream score cutoff."""
-        if not isinstance(text, str):
-            raise TypeError(f"text must be str, got {type(text).__name__}")
-        if not text.strip():
-            raise ValueError("text is empty")
-        if len(text) > MAX_TEXT_CHARS:
-            raise ValueError(f"text has {len(text)} chars; ceiling is {MAX_TEXT_CHARS} (chunk it first)")
-        if isinstance(labels, str | bytes) or not isinstance(labels, Sequence):
-            raise TypeError("labels must be a list of str")
-        if not 1 <= len(labels) <= MAX_LABELS:
-            raise ValueError(f"labels must hold 1..{MAX_LABELS} items, got {len(labels)}")
-        for i, label in enumerate(labels):
-            if not isinstance(label, str) or not label.strip():
-                raise TypeError(f"labels[{i}] must be a non-empty str")
-            if len(label) > MAX_LABEL_CHARS:
-                raise ValueError(f"labels[{i}] has {len(label)} chars; ceiling is {MAX_LABEL_CHARS}")
-        if len(set(labels)) != len(labels):
-            raise ValueError("labels must be unique")
-        bad_type = isinstance(threshold, bool) or not isinstance(threshold, int | float)
-        if bad_type or not 0.0 <= threshold <= 1.0:
-            raise ValueError("threshold must be a number in [0, 1]")
-
-        raw = self._runner(text, list(labels), float(threshold))
+        text, labels, threshold = _check_inputs(text, labels, threshold)
+        raw = self._runner(text, labels, threshold)
         entities = []
         for e in raw:
             start, end = int(e["start"]), int(e["end"])
@@ -255,7 +389,7 @@ class GLiNERPipeline:
             "entities": entities,
             "n_entities": len(entities),
             "labels": list(labels),
-            "threshold": float(threshold),
+            "threshold": threshold,
             "model_id": MODEL_ID,
             "model_revision": MODEL_REVISION,
             "encoder_model_id": ENCODER_MODEL_ID,

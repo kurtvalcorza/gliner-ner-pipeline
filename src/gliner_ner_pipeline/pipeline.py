@@ -331,9 +331,6 @@ class GLiNERPipeline:
         allow_download: bool = False,
         encoder_dir: str | Path | None = None,
     ) -> GLiNERPipeline:
-        import torch
-
-        resolved_device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
         root = Path(weights_dir) if weights_dir is not None else DEFAULT_WEIGHTS_DIR
         enc = Path(encoder_dir) if encoder_dir is not None else ENCODER_WEIGHTS_DIR
         with warnings.catch_warnings(record=True) as caught:
@@ -353,6 +350,9 @@ class GLiNERPipeline:
                 model = GLiNER.from_pretrained(MODEL_ID, revision=MODEL_REVISION, map_location="cpu")
             else:
                 raise FileNotFoundError(f"no verified snapshot at {root} and allow_download=False")
+        # Validate and verify the snapshots before importing model libraries.
+        import torch
+        resolved_device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
         model = model.to(resolved_device).eval()
         messages = [f"{w.category.__name__}: {w.message}" for w in caught]
 

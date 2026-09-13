@@ -3,6 +3,8 @@ license: apache-2.0
 model_card_spec: "1.1"
 pipeline_tag: token-classification
 base_model: urchade/gliner_multi-v2.1
+date_published: "2024-04-09"
+date_published_source: "Hugging Face Hub repository creation date of the exact hosted checkpoint (`createdAt`, https://huggingface.co/api/models/urchade/gliner_multi-v2.1)"
 ---
 
 # GLiNER multi-v2.1 (DIMER package v0.1.0) — Zero-Shot Named-Entity Recognition Model (Span Extractor)
@@ -11,7 +13,6 @@ base_model: urchade/gliner_multi-v2.1
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-urchade%2FGLiNER-181717?style=flat&logo=github&logoColor=white)](https://github.com/urchade/GLiNER)
 [![arXiv Paper](https://img.shields.io/badge/arXiv-2311.08526-b31b1b.svg)](https://arxiv.org/abs/2311.08526)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Pipeline](https://img.shields.io/badge/Pipeline-gliner--ner--pipeline-2ea44f?style=flat&logo=github)](https://github.com/kurtvalcorza/gliner-ner-pipeline)
 
 > [!WARNING]
 > ⚠️ **Provided for research, training, and evaluation purposes only.** Model weights are redistributed unmodified under their upstream license, which controls your use, including any commercial use or redistribution; the accompanying code and notebooks are released under this repository's license. All of it is supplied **"as is"**, without warranty of any kind, and has not been validated for production, clinical, or safety-critical use. Running the notebooks downloads third-party weights and datasets governed by their own licenses and consumes compute on your own Colab/Kaggle account. To the maximum extent permitted by law, the maintainers of this repository and the DIMER platform accept no liability for any damages arising from their use. Hosting implies no affiliation with or endorsement by the original authors.
@@ -28,7 +29,7 @@ This pipeline provides a ready-to-run interactive Google Colab notebook that exe
 
 ---
 
-###### Description
+#### Description
 
 `urchade/gliner_multi-v2.1` is the multilingual GLiNER checkpoint of Zaratiana et al. (arXiv:2311.08526), pinned here to revision `443d26d654e0324125a96bebd8e796c14ff2efe6`. GLiNER is a bidirectional-encoder span extractor: the pinned `gliner_config.json` names `microsoft/mdeberta-v3-base` as the encoder, a 512-unit projection, span mode `markerV0`, spans of at most 12 words (`max_width`), and 384 words of context (`max_len`). At inference the caller's entity-type names are prepended to the text as special tokens, the encoder runs once, every candidate span is scored against every label embedding, and spans above a threshold are returned; adaptation happens only through the label names in context, never through training. The GLiNER snapshot ships 2 model files (`gliner_config.json`, `model.safetensors`); the encoder's tokenizer and configuration are not in it, so this repository pins them as a second snapshot, `microsoft/mdeberta-v3-base` at revision `a0484667b22365f84929a935b5e50a51f71f159d` (`config.json`, `tokenizer_config.json`, `spm.model`, no weights), with its own manifest. What this repository adds is the `GLiNERPipeline` class in `src/gliner_ner_pipeline/pipeline.py`: verification of both manifests (`verify_snapshot`, `verify_encoder_snapshot`), fresh-clone staging for both (`stage_missing_files`, `stage_missing_encoder_files`), a loader that redirects the library's encoder lookups to the verified local directory instead of the Hub or a cache, input validation with named ceilings, a fixed output contract, and the `entity_f1` helper.
 

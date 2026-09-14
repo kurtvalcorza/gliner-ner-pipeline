@@ -7,7 +7,7 @@ date_published: "2024-04-09"
 date_published_source: "Hugging Face Hub repository creation date of the exact hosted checkpoint (`createdAt`, https://huggingface.co/api/models/urchade/gliner_multi-v2.1)"
 ---
 
-# GLiNER multi-v2.1 (DIMER package v0.1.0) — Zero-Shot Named-Entity Recognition Model (Span Extractor)
+# GLiNER multi-v2.1 — Zero-Shot Named-Entity Recognition Model (Span Extractor)
 
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-urchade%2Fgliner__multi--v2.1-ffcc4d?style=flat)](https://huggingface.co/urchade/gliner_multi-v2.1)
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-urchade%2FGLiNER-181717?style=flat&logo=github&logoColor=white)](https://github.com/urchade/GLiNER)

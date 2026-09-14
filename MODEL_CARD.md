@@ -2,6 +2,7 @@
 license: apache-2.0
 model_card_spec: "1.1"
 pipeline_tag: token-classification
+task: "Others - Named-Entity Recognition"
 base_model: urchade/gliner_multi-v2.1
 date_published: "2024-04-09"
 date_published_source: "Hugging Face Hub repository creation date of the exact hosted checkpoint (`createdAt`, https://huggingface.co/api/models/urchade/gliner_multi-v2.1)"

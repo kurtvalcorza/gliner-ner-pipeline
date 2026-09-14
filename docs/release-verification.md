@@ -76,7 +76,7 @@ Before changing the registry status from `Candidate` to `Release-grade`:
    defaults for the sample path: `USE_BYOD = False`, `LABELS = 'person, organization, location, date'`, `THRESHOLD = 0.5`, `GOLD_JSON = ''`);
 4. verify that Section 1 reports `NOTEBOOK_SOURCE.repository_revision` equal to the revision recorded
    in `metadata.dimer.generated_from` and that the installed core package versions equal the inline
-   `PINS` (= `pyproject.toml`) (`torch==2.14.0`, `gliner==0.2.29`, `transformers==4.57.6`, `huggingface-hub==0.36.2`, `safetensors==0.8.0`, `numpy==2.5.3`, `protobuf==6.31.1`, `sentencepiece==0.2.2`);
+   `PINS` (= `pyproject.toml`) (`torch==2.14.0`, `torchvision==0.29.0`, `torchaudio==2.11.0`, `gliner==0.2.29`, `transformers==4.57.6`, `huggingface-hub==0.36.2`, `safetensors==0.8.0`, `numpy==2.5.3`, `protobuf==6.31.1`, `sentencepiece==0.2.2`);
 5. verify every default-path stage completes:
    - pinned runtime installed from the inline `PINS` with no GitHub access;
    - the carried module cell executes (defines `GLiNERPipeline`, `validate_inputs`,
@@ -101,7 +101,7 @@ A known-failing default path in the supported runtime blocks release.
 
 | Notebook | Commit / notebook blob | Date (UTC) | Executor | Outcome |
 |---|---|---|---|---|
-| `tutorials/gliner_ner_colab.ipynb` | | | | pending — queued to the GPU lane |
+| `gliner_ner_colab.ipynb` | `2c27e3e` / `32763eee776b` | 2026-09-14 | Kaggle CPU (`kurtvalcorza/dimer-nb2-gliner-ner` v1) | PASS — 8/8 ok (1 restart after install cell) |
 
 ## Recorded executions
 
@@ -115,7 +115,7 @@ package, not this notebook, and is not notebook execution evidence.
 
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
-| — | — | — | Default sample path | — | pending — queued to the GPU lane |
+| 2026-09-14 | `2c27e3e` / `32763eee776b` | Kaggle CPU (`kurtvalcorza/dimer-nb2-gliner-ner` v1) | Default sample path | 266.4 s | **PASSED** — 8/8 ok code cells executed cleanly, 18 files, 1160 MB staged |
 
 ## Current status
 

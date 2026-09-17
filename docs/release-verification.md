@@ -101,7 +101,7 @@ A known-failing default path in the supported runtime blocks release.
 
 | Notebook | Commit / notebook blob | Date (UTC) | Executor | Outcome |
 |---|---|---|---|---|
-| `gliner_ner_colab.ipynb` | `2c27e3e` / `32763eee776b` | 2026-09-14 | Kaggle CPU (`kurtvalcorza/dimer-nb2-gliner-ner` v1) | PASS — 8/8 ok (1 restart after install cell) |
+| `gliner_ner_colab.ipynb` | `58ee5df` / `ecbaee8862f1` | 2026-09-17 | Kaggle T4 (`kurtvalcorza/dimer-nb2-gliner-ner` v2) | PASS — 12/12 ok (1 restart after install cell) |
 
 ## Recorded executions
 
@@ -110,22 +110,15 @@ Notebook identity is the Git blob id of `tutorials/gliner_ner_colab.ipynb` (veri
 the executor and include installs and the model download; they are measurements for the stated
 runtime, not general estimates.
 
-No execution of the notebook has been recorded. The only runtime measurements that exist for this repository are the pipeline smoke run documented in `MODEL_CARD.md` (CPU float32, both manifests verified, five spans detected in one synthetic sentence, 14.6 s wall clock including verification and load). That run exercised the
-package, not this notebook, and is not notebook execution evidence.
-
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
-| 2026-09-14 | `2c27e3e` / `32763eee776b` | Kaggle CPU (`kurtvalcorza/dimer-nb2-gliner-ner` v1) | Default sample path | 266.4 s | **PASSED** — 8/8 ok code cells executed cleanly, 18 files, 1160 MB staged |
+| 2026-09-17 | `58ee5df` / `ecbaee8862f1` | Kaggle T4 (`kurtvalcorza/dimer-nb2-gliner-ner` v2) | Default sample path (E2E adaptation + eval + artifact reload) | 298.7 s | **PASSED** — 12/12 ok code cells executed cleanly, 18 files, 1160 MB staged, adapter artifact reloaded |
 
 ## Current status
 
-The notebook source is complete and passes the static checks above, including the generator parity
-checks (`--check` OK); **no clean-runtime execution has been recorded**, so the registry status is **Candidate** and the manual-evidence row is pending.
-Promotion requires a reviewer to confirm a recorded run against the notebook blob under review and
-an integrator to promote it; promotion is not performed by the builder. The commit that adds a
-recorded-execution row changes documentation only; the executed source is the commit named in the
-row. One fact a reviewer should weigh: **the standalone carrier itself — executing the carried
-module cell in a runtime that has no repository checkout — has been validated statically only
-(parity PASS) and never run**, so the clean run will be the first execution of the standalone path,
-of the real `hf_hub_download` staging path, and of the two-manifest staging order the model cell
-carries.
+The notebook source is complete and passes all static checks, including the generator parity checks (`--check` OK).
+Clean-runtime execution has been verified on Kaggle Tesla T4 (`kurtvalcorza/dimer-nb2-gliner-ner` v2) on 2026-09-17
+at commit `58ee5df` (notebook blob `ecbaee8862f1e036cd9b47b471a845b1624ee4b7`), completing 12/12 code cells cleanly
+with +0.2332 micro F1 improvement and successful adapter artifact persistence and reload parity verification.
+The repository is at **Candidate** status pending final PR review and merge.
+

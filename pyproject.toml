@@ -33,6 +33,7 @@ addopts = "-q"
 line-length = 110
 target-version = "py312"
 src = ["src", "tests"]
+extend-exclude = ["tutorials"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

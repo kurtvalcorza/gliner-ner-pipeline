@@ -12,6 +12,8 @@ MODEL_ID = "urchade/gliner_multi-v2.1"
 MODEL_REVISION = "443d26d654e0324125a96bebd8e796c14ff2efe6"
 MODEL_LICENSE = "apache-2.0"
 MODEL_KEY = "gliner-multi-v2.1"
+ARTIFACT_FORMAT = "org.valcorza.gliner-ner.adapter.v1"
+ARTIFACT_FORMAT_VERSION = "1.0"
 _WEIGHTS_ROOT = Path(__file__).resolve().parents[2] / "weights"
 DEFAULT_WEIGHTS_DIR = _WEIGHTS_ROOT / MODEL_KEY
 MANIFEST_NAME = "dimer-base-manifest.json"
@@ -317,11 +319,12 @@ def _local_encoder_class(root: Path, encoder_dir: Path) -> type:
 
 @dataclass
 class GLiNERPipeline:
-    """Zero-shot NER. `_runner(text, labels, threshold)` returns gliner entity dicts."""
+    """Zero-shot and adapted NER pipeline. `_runner(text, labels, threshold)` returns gliner entity dicts."""
 
     _runner: Callable[[str, list[str], float], list[dict[str, Any]]]
     device: str
     load_warnings: list[str] = field(default_factory=list)
+    model: Any = None
 
     @classmethod
     def from_pretrained(
@@ -360,7 +363,7 @@ class GLiNERPipeline:
             with torch.inference_mode():
                 return model.predict_entities(text, labels, threshold=threshold)
 
-        return cls(runner, resolved_device, messages)
+        return cls(runner, resolved_device, messages, model=model)
 
     def detect(
         self,
@@ -370,7 +373,14 @@ class GLiNERPipeline:
     ) -> dict[str, Any]:
         """Extract spans for the caller-supplied `labels`; `threshold` is the upstream score cutoff."""
         text, labels, threshold = _check_inputs(text, labels, threshold)
-        raw = self._runner(text, labels, threshold)
+        if self.model is not None:
+            import torch
+
+            with torch.inference_mode():
+                raw = self.model.predict_entities(text, list(labels), threshold=threshold)
+        else:
+            raw = self._runner(text, list(labels), threshold)
+
         entities = []
         for e in raw:
             start, end = int(e["start"]), int(e["end"])
@@ -395,3 +405,263 @@ class GLiNERPipeline:
             "encoder_model_id": ENCODER_MODEL_ID,
             "encoder_revision": ENCODER_REVISION,
         }
+
+    def evaluate(
+        self,
+        records: Sequence[dict[str, Any]],
+        labels: Sequence[str] | None = None,
+        threshold: float = DEFAULT_THRESHOLD,
+    ) -> dict[str, Any]:
+        """Evaluate exact-span metrics over a dataset of NER records."""
+        from .metrics import evaluate_ner_dataset
+        from .samples import validate_dataset
+
+        validate_dataset(records)
+        if labels is None:
+            extracted_labels = sorted({
+                s["label"]
+                for r in records
+                for s in (r.get("spans") or r.get("entities", []))
+            })
+            if not extracted_labels:
+                raise ValueError(
+                    "Cannot infer labels: records contain no entity spans and labels was not provided"
+                )
+            eval_labels = extracted_labels
+        else:
+            eval_labels = list(labels)
+
+        predictions: list[list[dict[str, Any]]] = []
+        for r in records:
+            res = self.detect(r["text"], eval_labels, threshold=threshold)
+            predictions.append(res["entities"])
+
+        metrics = evaluate_ner_dataset(predictions, records, eval_labels)
+        return {
+            "micro": {
+                "precision": metrics["micro_precision"],
+                "recall": metrics["micro_recall"],
+                "f1": metrics["micro_f1"],
+                "hits": metrics["hits"],
+            },
+            "macro": {
+                "f1": metrics["macro_f1"],
+            },
+            "per_class": metrics["per_class"],
+            "num_samples": len(records),
+            "labels": eval_labels,
+            "threshold": threshold,
+        }
+
+    def adapt(
+        self,
+        train_records: Sequence[dict[str, Any]],
+        val_records: Sequence[dict[str, Any]] | None = None,
+        *,
+        epochs: int = 3,
+        learning_rate: float = 5e-5,
+        batch_size: int = 4,
+        freeze_text_encoder: bool = True,
+        weight_decay: float = 0.01,
+        threshold: float = DEFAULT_THRESHOLD,
+        seed: int = 42,
+    ) -> dict[str, Any]:
+        """Run bounded fine-tuning loop over domain records without external dependencies."""
+        if self.model is None:
+            raise RuntimeError("Cannot adapt: pipeline has no underlying PyTorch model loaded.")
+        from .samples import validate_dataset
+
+        validate_dataset(train_records)
+        if not train_records:
+            raise ValueError("train_records cannot be empty")
+        if val_records is not None:
+            validate_dataset(val_records)
+
+        import random
+
+        import torch
+
+        random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+        if freeze_text_encoder:
+            if hasattr(self.model, "freeze_component"):
+                self.model.freeze_component("text_encoder")
+            elif hasattr(self.model, "model") and hasattr(self.model.model, "token_rep_layer"):
+                for p in self.model.model.token_rep_layer.parameters():
+                    p.requires_grad = False
+
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        if not trainable_params:
+            raise RuntimeError("No trainable parameters found for adaptation.")
+
+        optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate, weight_decay=weight_decay)
+        collator = self.model._create_data_collator()
+
+        all_labels = sorted({
+            span[2]
+            for r in (list(train_records) + (list(val_records) if val_records else []))
+            for span in r.get("ner", [])
+        })
+
+        history: list[dict[str, Any]] = []
+        n_train = len(train_records)
+        train_examples = [
+            {"tokenized_text": r["tokenized_text"], "ner": r["ner"]}
+            for r in train_records
+        ]
+
+        self.model.train()
+        for epoch in range(1, epochs + 1):
+            epoch_loss = 0.0
+            num_batches = 0
+
+            indices = list(range(n_train))
+            random.shuffle(indices)
+
+            for i in range(0, n_train, batch_size):
+                batch_indices = indices[i : i + batch_size]
+                batch_data = [train_examples[idx] for idx in batch_indices]
+                batch = collator(batch_data)
+                batch = {
+                    k: v.to(self.device) if hasattr(v, "to") else v
+                    for k, v in batch.items()
+                }
+
+                optimizer.zero_grad()
+                output = self.model(**batch)
+                loss = output.loss
+                loss.backward()
+                optimizer.step()
+
+                epoch_loss += float(loss.item())
+                num_batches += 1
+
+            avg_loss = epoch_loss / max(1, num_batches)
+            epoch_summary: dict[str, Any] = {
+                "epoch": epoch,
+                "loss": round(avg_loss, 6),
+                "num_batches": num_batches,
+            }
+
+            if val_records:
+                self.model.eval()
+                val_res = self.evaluate(val_records, labels=all_labels, threshold=threshold)
+                epoch_summary["val_f1"] = val_res["micro"]["f1"]
+                epoch_summary["val_precision"] = val_res["micro"]["precision"]
+                epoch_summary["val_recall"] = val_res["micro"]["recall"]
+                self.model.train()
+
+            history.append(epoch_summary)
+
+        self.model.eval()
+
+        final_eval: dict[str, Any] | None = None
+        if val_records:
+            final_eval = self.evaluate(val_records, labels=all_labels, threshold=threshold)
+
+        return {
+            "epochs": epochs,
+            "learning_rate": learning_rate,
+            "batch_size": batch_size,
+            "freeze_text_encoder": freeze_text_encoder,
+            "train_samples": n_train,
+            "val_samples": len(val_records) if val_records else 0,
+            "history": history,
+            "final_eval": final_eval,
+        }
+
+    def save_artifact(
+        self,
+        output_path: str | Path,
+        metadata: dict[str, Any] | None = None,
+    ) -> Path:
+        """Export adapter state dict and lineage metadata to a .pt artifact."""
+        if self.model is None:
+            raise RuntimeError("Cannot save artifact: pipeline has no model loaded.")
+        import torch
+
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        trainable_names = {name for name, p in self.model.named_parameters() if p.requires_grad}
+        if trainable_names:
+            adapter_weights = {
+                k: v.detach().cpu().clone()
+                for k, v in self.model.state_dict().items()
+                if k in trainable_names
+            }
+        else:
+            adapter_weights = {
+                k: v.detach().cpu().clone()
+                for k, v in self.model.state_dict().items()
+            }
+
+        payload: dict[str, Any] = {
+            "format": ARTIFACT_FORMAT,
+            "format_version": ARTIFACT_FORMAT_VERSION,
+            "base_model": {
+                "model_id": MODEL_ID,
+                "model_revision": MODEL_REVISION,
+                "encoder_model_id": ENCODER_MODEL_ID,
+                "encoder_revision": ENCODER_REVISION,
+            },
+            "adapter_state_dict": adapter_weights,
+            "metadata": metadata or {},
+        }
+        torch.save(payload, path)
+        return path
+
+    def load_artifact(self, artifact_path: str | Path) -> dict[str, Any]:
+        """Load adapter state dict into the current pipeline's model."""
+        if self.model is None:
+            raise RuntimeError("Cannot load artifact: pipeline has no model loaded.")
+        import torch
+
+        path = Path(artifact_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"Artifact file not found: {path}")
+
+        payload = torch.load(path, map_location=self.device, weights_only=True)
+
+        if not isinstance(payload, dict):
+            raise ValueError(f"Invalid artifact format: expected dict, got {type(payload).__name__}")
+        if payload.get("format") != ARTIFACT_FORMAT:
+            raise ValueError(
+                f"Artifact format mismatch: {payload.get('format')!r} != {ARTIFACT_FORMAT!r}"
+            )
+        base = payload.get("base_model", {})
+        if base.get("model_id") != MODEL_ID:
+            raise ValueError(
+                f"Artifact base model mismatch: {base.get('model_id')!r} != {MODEL_ID!r}"
+            )
+
+        weights = payload["adapter_state_dict"]
+        weights = {
+            k: v.to(self.device) if hasattr(v, "to") else v
+            for k, v in weights.items()
+        }
+        self.model.load_state_dict(weights, strict=False)
+        self.model.eval()
+        return payload.get("metadata", {})
+
+    @classmethod
+    def from_artifact(
+        cls,
+        artifact_path: str | Path,
+        device: str | None = None,
+        weights_dir: str | Path | None = None,
+        allow_download: bool = False,
+        encoder_dir: str | Path | None = None,
+    ) -> GLiNERPipeline:
+        """Construct GLiNERPipeline from base weights and overlay adapter artifact weights."""
+        pipeline = cls.from_pretrained(
+            device=device,
+            weights_dir=weights_dir,
+            allow_download=allow_download,
+            encoder_dir=encoder_dir,
+        )
+        pipeline.load_artifact(artifact_path)
+        return pipeline

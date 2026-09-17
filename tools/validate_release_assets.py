@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "gliner_ner_pipeline"
 REPO_NAME = "gliner-ner-pipeline"
 NOTEBOOK_NAME = "gliner_ner_colab.ipynb"
-EXPECTED_PROFILE = "TASK-INFERENCE"
+EXPECTED_PROFILE = "E2E"
 EXPECTED_MODEL_ID = "urchade/gliner_multi-v2.1"
 PIPELINE_CLASS = "GLiNERPipeline"
 # INF1: the load expression the model cell must carry. This pipeline verifies TWO pinned snapshots,
@@ -36,29 +36,39 @@ KNOWN_SHAS: frozenset[str] = frozenset(("a0484667b22365f84929a935b5e50a51f71f159
 BYOD_GATES = ("USE_BYOD",)
 # Machine-readable artifacts the notebook must write (OUT1-OUT3, DAT24, EVAL21).
 EXPECTED_OUTPUTS = (
-    "outputs/gliner_ner_input_manifest.json",
     "outputs/gliner_ner_evaluation_report.json",
+    "outputs/gliner_ner_adapter.pt",
     "outputs/gliner_ner_result.json",
     "outputs/gliner_ner_entities.csv",
 )
 # Profile-specific code the notebook must exercise through the carried module's public API.
 CODE_MARKERS = (
-    "input_manifest = validate_inputs(text, labels, THRESHOLD, names=[sample_name])",
-    "validate_inputs(text, labels + labels[:1], THRESHOLD)",
-    "result = pipe.detect(text, labels, threshold=THRESHOLD)",
-    "report = evaluation_report(result, gold, sample_kind=sample_kind)",
-    "print({'ceilings': {'MAX_TEXT_CHARS': MAX_TEXT_CHARS, 'MAX_LABELS': MAX_LABELS, 'MAX_LABEL_CHARS': MAX_LABEL_CHARS, 'library_word_limit': 384, 'DEFAULT_THRESHOLD': DEFAULT_THRESHOLD}})",
-    "gold = json.loads(GOLD_JSON) if GOLD_JSON.strip() else None",
-    # The second pinned snapshot (ST3/ST4): its manifest is carried inline, staged and digest-verified
-    # through the carried module's own encoder helpers before the pipeline loads.
+    # Stage 3: Two pinned snapshots
     "ENCODER_MANIFEST = {",
     "if (ENCODER_MANIFEST['modelId'], ENCODER_MANIFEST['revision']) != (ENCODER_MODEL_ID, ENCODER_REVISION):",
     "fetched_mdeberta_v3_base_tokenizer = stage_missing_encoder_files(ENCODER_WEIGHTS_DIR, allow_download=True)",
     "_extra = verify_encoder_snapshot(ENCODER_WEIGHTS_DIR)",
-    "'span_text_matches_offsets': all(text[e['start']:e['end']] == e['text'] for e in entities)",
-    "'scores_at_or_above_threshold': all(THRESHOLD <= e['score'] <= 1.0 for e in entities)",
-    "'load_warnings': pipe.load_warnings",
-    "sample_sha256 = hashlib.sha256(text.encode('utf-8')).hexdigest()",
+    # Stage 4: Dataset loading and validation
+    "USE_BYOD = False",
+    "val_manifest = validate_dataset(raw_dataset)",
+    "train_records, val_records = split_ner_dataset(raw_dataset, val_fraction=VAL_FRACTION, seed=SEED)",
+    # Stage 5: Zero-shot baseline evaluation
+    "baseline_eval = pipe.evaluate(val_records, labels=ADAPT_CLASSES)",
+    # Stage 6: Bounded fine-tuning
+    "adapt_result = pipe.adapt(",
+    "freeze_text_encoder=True",
+    # Stage 7: Post-adaptation evaluation and delta calculation
+    "adapted_eval = pipe.evaluate(val_records, labels=ADAPT_CLASSES)",
+    "delta_f1 = round(adapted_eval['micro']['f1'] - baseline_eval['micro']['f1'], 4)",
+    # Stage 8: Unseen text inference and span verification
+    "inference_result = pipe.detect(test_sentence, labels=ADAPT_CLASSES, threshold=DEFAULT_THRESHOLD)",
+    "entities = inference_result['entities']",
+    "'span_text_matches': all(test_sentence[e['start']:e['end']] == e['text'] for e in entities)",
+    # Stage 9: Adapter export and reload parity check
+    "pipe.save_artifact(",
+    "reloaded_pipe = GLiNERPipeline.from_artifact(",
+    "reloaded_res = reloaded_pipe.detect(test_sentence, labels=ADAPT_CLASSES, threshold=DEFAULT_THRESHOLD)",
+    # Stage 10: Metadata and lineage export
     "writer.writerow(['index', 'start', 'end', 'label', 'score', 'text'])",
     "'encoder_model_id': ENCODER_MODEL_ID",
     "'encoder_revision': ENCODER_REVISION",
@@ -68,22 +78,16 @@ CODE_MARKERS = (
     "transformers.__version__",
     "gliner.__version__",
     "'device': pipe.device",
+    "'artifact_format': ARTIFACT_FORMAT",
+    "'artifact_format_version': ARTIFACT_FORMAT_VERSION",
 )
 # Profile-specific learner-facing statements.
 MARKDOWN_MARKERS = (
-    "**Capability:** zero-shot named-entity recognition with a caller-supplied label set",
-    "**No adaptation occurs:**",
-    "**not a calibrated probability**",
-    "**owned by the caller**",
-    "**Two pinned snapshots**",
-    "cuts input beyond 384 words",
+    "**Capability:** zero-shot and domain-adapted named-entity recognition with arbitrary label sets",
     "`fix_mistral_regex`",
-    "exact-span micro precision/recall/F1",
-    "the verdict is `not-measurable`",
-    "`sample-sanity`",
-    "`MAX_TEXT_CHARS`",
-    "`MAX_LABELS`",
-    "entity linking or normalisation, relation extraction, coreference",
+    "mDeBERTa-v3 text encoder backbone is frozen",
+    "Exact-span F1 requires exact agreement",
+    "relation extraction, coreference resolution",
 )
 # Direct-library use that must stay inside the carried module cell (G2: the notebook calls the
 # pipeline API, it does not reimplement it). Checked on every code cell except the embedded one.
@@ -193,7 +197,12 @@ FORBIDDEN_PATTERNS = (
     ("trust_remote_code enabled", re.compile(r"trust_remote_code\s*[=:]\s*True")),
     (
         "unsafe deserialization",
-        re.compile(r"\bpickle\.load|\btorch\.load\s*\(|getattr\(\s*torch\s*,\s*['\"]load['\"]"),
+        re.compile(
+            r"\bpickle\.load"
+            r"|\btorch\.load\s*\((?![^)]*weights_only\s*=\s*True)"
+            r"|weights_only\s*=\s*False"
+            r"|getattr\(\s*torch\s*,\s*['\"]load['\"]"
+        ),
     ),
     ("archive extractall", re.compile(r"\.extractall\s*\(")),
     ("notebook magic or shell escape", re.compile(r"(?m)^\s*[%!]|get_ipython\(\)")),
@@ -368,13 +377,16 @@ def _validate_notebook_structure(path: Path, notebook: dict) -> tuple[list[tuple
     _check(dimer.get("notebook_mode") in ("REFERENCE", "GUIDED", "WORKSHOP"), f"{path.name}: metadata.dimer.notebook_mode must declare a §3.3 pedagogical mode")
     _check(dimer.get("standalone") is True, f"{path.name}: metadata.dimer.standalone must be true (ST6)")
     generated = dimer.get("generated_from")
+    _template = _load_tool("notebook_template").TEMPLATE
     _check(isinstance(generated, dict), f"{path.name}: metadata.dimer.generated_from is required (ST5)")
     _check(generated.get("repository") == REPO_NAME, f"{path.name}: generated_from.repository must be {REPO_NAME}")
     _check(
-        generated.get("module") == f"src/{PACKAGE}/pipeline.py",
-        f"{path.name}: generated_from.module must be src/{PACKAGE}/pipeline.py",
+        generated.get("module") == f"{_template.get('package_dir', f'src/{PACKAGE}')}/{_template.get('entry_module', 'pipeline.py')}",
+        f"{path.name}: generated_from.module must name the template entry module",
     )
-    module_sha = hashlib.sha256(_read(ROOT / "src" / PACKAGE / "pipeline.py").encode("utf-8")).hexdigest()
+    _pkg_dir = ROOT / _template.get("package_dir", f"src/{PACKAGE}")
+    _order = _load_tool("build_notebook")._module_order(_pkg_dir, list(_template.get("modules", ["pipeline.py"])))
+    module_sha = hashlib.sha256("".join(_read(_pkg_dir / m) for m in _order).encode("utf-8")).hexdigest()
     _check(
         generated.get("module_sha256") == module_sha,
         f"{path.name}: generated_from.module_sha256 does not match src/ (PAR4: regenerate the notebook)",
@@ -445,39 +457,47 @@ def _validate_gates(path: Path, code_cells: list[tuple[int, str, ast.Module]]) -
                 )
 
 
-def _validate_embedded_module(path: Path, notebook: dict, build) -> int:
-    """PAR1: exactly one tagged cell, equal to the module after the documented rewrites."""
+def _validate_embedded_modules(path: Path, notebook: dict, build) -> list[int]:
+    """PAR1: one tagged cell per carried module, in dependency order, each equal to its module after
+    the documented rewrites (generator /2 multi-module carrier; ST2 applied per module)."""
     tagged = [
         (index, cell)
         for index, cell in enumerate(notebook.get("cells", []))
         if cell.get("cell_type") == "code" and cell.get("metadata", {}).get("dimer", {}).get("embedded_module")
     ]
-    _check(len(tagged) == 1, f"{path.name}: exactly one cell must be tagged metadata.dimer.embedded_module (ST2)")
-    index, cell = tagged[0]
+    template = _load_tool("notebook_template").TEMPLATE
+    recorded = notebook["metadata"]["dimer"]["generated_from"]["revision"]
+    context = build.load_context(ROOT, template, recorded)
+    expected_rels = context["module_rels"]
     _check(
-        cell["metadata"]["dimer"]["embedded_module"] == f"src/{PACKAGE}/pipeline.py",
-        f"{path.name}: embedded_module tag must name src/{PACKAGE}/pipeline.py",
+        [cell["metadata"]["dimer"]["embedded_module"] for _, cell in tagged] == expected_rels,
+        f"{path.name}: the cells tagged metadata.dimer.embedded_module must be exactly {expected_rels}, in order (ST2)",
     )
-    rewrites = _load_tool("notebook_template").TEMPLATE.get("rewrites", build.REWRITES)
-    expected = build.apply_rewrites(_read(ROOT / "src" / PACKAGE / "pipeline.py"), rewrites)
-    _check(
-        _cell_source(cell).rstrip("\n") + "\n" == expected,
-        f"{path.name}: embedded module differs from src/{PACKAGE}/pipeline.py (PAR1); regenerate the notebook",
-    )
-    return index
+    for (index, cell), module, rel in zip(
+        tagged, context["modules"], context["module_rels"], strict=True
+    ):
+        _check(
+            cell["metadata"]["dimer"].get("module_sha256") == context["per_module_sha256"][rel],
+            f"{path.name}: cell {index} module_sha256 tag does not match {rel}",
+        )
+        _check(
+            _cell_source(cell).rstrip("\n") + "\n" == context["embedded"][module],
+            f"{path.name}: embedded module cell {index} differs from {rel} (PAR1); regenerate the notebook",
+        )
+    return [index for index, _ in tagged]
 
 
 def _validate_identity(
-    path: Path, code_cells: list[tuple[int, str, ast.Module]], embedded_index: int, revision: str
+    path: Path, code_cells: list[tuple[int, str, ast.Module]], embedded: list[int], revision: str
 ) -> None:
     """Identity constants are bound in the carried module only; nothing outside rebinds them."""
     for index, _source, tree in code_cells:
-        if index == embedded_index:
+        if index in embedded:
             continue
         for node in ast.walk(tree):
             rebound = [name for name in _assignment_targets(node) if name in IDENTITY_NAMES]
             _check(not rebound, f"{path.name}: {rebound} must not be rebound outside the module cell (cell {index})")
-    outside = "\n".join(source for index, source, _ in code_cells if index != embedded_index)
+    outside = "\n".join(source for index, source, _ in code_cells if index not in embedded)
     manifest_block = re.search(r"^MANIFEST = (\{.*?^\})$", outside, re.M | re.S)
     _check(manifest_block is not None, f"{path.name}: model cell must carry an inline MANIFEST literal (ST3)")
     outside_without_manifest = outside.replace(manifest_block.group(0), "")
@@ -518,12 +538,12 @@ def _validate_bootstrap_guard(path: Path, code_cells: list[tuple[int, str, ast.M
 
 
 def _validate_notebook_content(
-    path: Path, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded_index: int
+    path: Path, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int]
 ) -> None:
     model_id, _revision = _package_identity()
     stripped = {index: _strip_comments(source) for index, source, _ in code_cells}
     code = "\n".join(stripped.values())
-    outside = "\n".join(text for index, text in stripped.items() if index != embedded_index)
+    outside = "\n".join(text for index, text in stripped.items() if index not in embedded)
     missing = [marker for marker in COMMON_CODE_MARKERS + CODE_MARKERS if marker not in code]
     _check(not missing, f"{path.name}: missing required source markers: {missing}")
     present = [label for label, pattern in FORBIDDEN_PATTERNS if pattern.search(code)]
@@ -553,11 +573,11 @@ def validate_notebooks() -> None:
     build = _load_tool("build_notebook")
     notebook = json.loads(_read(path))
     code_cells, markdown = _validate_notebook_structure(path, notebook)
-    embedded_index = _validate_embedded_module(path, notebook, build)
+    embedded = _validate_embedded_modules(path, notebook, build)
     _model_id, revision = _package_identity()
-    _validate_identity(path, code_cells, embedded_index, revision)
+    _validate_identity(path, code_cells, embedded, revision)
     _validate_parity(path, notebook, code_cells, build)
-    _validate_notebook_content(path, code_cells, markdown, embedded_index)
+    _validate_notebook_content(path, code_cells, markdown, embedded)
     registry = _read(tutorials / "README.md")
     _check(f"`{path.name}`" in registry, f"{path.name} missing from tutorials/README.md")
     _check(f"`{EXPECTED_PROFILE}`" in registry, f"tutorials/README.md must record `{EXPECTED_PROFILE}`")

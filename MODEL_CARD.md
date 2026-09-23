@@ -106,7 +106,7 @@ This pipeline is not intended for decisions in health, safety, criminal justice,
 
 ###### Use cases
 
-The pipeline must not be used to build profiles of individuals from text they did not consent to have processed, for surveillance, for biometric or demographic inference from names (ethnicity, religion, gender), for social scoring, or for unlawful discrimination in employment, housing, credit, insurance, education, or healthcare access. It must not be used to de-anonymise authors or data subjects, to harvest personal data from scraped content, or in any way that breaches the Apache-2.0 terms of the upstream weights, the licence of the mDeBERTa encoder assets, or the DIMER deployment terms. These prohibitions hold even where the model would extract the spans accurately.
+The pipeline must not be used to build profiles of individuals from text they did not consent to have processed, for surveillance, for biometric or demographic inference from names (ethnicity, religion, gender), for social scoring, or for unlawful discrimination in employment, housing, credit, insurance, education, or healthcare access. It must not be used to de-anonymise authors or data subjects, to harvest personal data from scraped content, or in any way that breaches the Apache-2.0 terms of the upstream weights, the licence of the mDeBERTa encoder assets, or the terms of the deployment that runs the pipeline. These prohibitions hold even where the model would extract the spans accurately.
 
 ## Immutable provenance
 

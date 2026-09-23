@@ -42,7 +42,7 @@ The task is zero-shot named-entity recognition: input is one text of at most `MA
 
 ###### Primary Intended Users
 
-Intended users are machine-learning engineers, data scientists, and application developers building information-extraction features for research prototypes, internal enterprise tooling, or the DIMER model workbench. The pipeline assumes its users understand that the label names are the only task specification and that their wording changes recall, that a span score above 0.5 is a ranking cutoff and not a calibrated probability, that text beyond 384 words is cut by the library, that the extracted entities are personal data whenever they name people, and that precision and recall on their own documents must be measured against human annotations before the output is relied on.
+Intended users are machine-learning engineers, data scientists, and application developers building information-extraction features for research prototypes or in-house tooling. The pipeline assumes its users understand that the label names are the only task specification and that their wording changes recall, that a span score above 0.5 is a ranking cutoff and not a calibrated probability, that text beyond 384 words is cut by the library, that the extracted entities are personal data whenever they name people, and that precision and recall on their own documents must be measured against human annotations before the output is relied on.
 
 ###### Out-of-scope use cases
 

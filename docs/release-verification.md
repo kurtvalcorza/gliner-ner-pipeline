@@ -109,13 +109,45 @@ estimates.
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
 | 2026-09-17 | `58ee5df` / `ecbaee8862f1` | Kaggle T4 (`kurtvalcorza/dimer-nb2-gliner-ner` v2) | Default sample path of the previous notebook version (in-kernel pinned install) | 298.7 s | **Passed after a manual restart** after the install cell (the in-kernel install replaced loaded packages); +0.2332 micro F1; adapter reloaded. Not a one-pass Run all; not promotion evidence |
+| 2026-10-04 | `fe3d5ba` / `87a15e765580` | Colab CLI 0.7.4 sequential execution, fresh Colab Tesla T4 (not a browser Run all) | Default sample path, every form field at its default | 142.8 s | **One pass, no restart, 0 errors**, 16/16 code cells; baseline micro F1 0.6857 → adapted 0.9189 (+0.2332); adapter reload 26/26 tensors, 7/7 sentences |
 
-The notebook was regenerated afterwards (review PR #10: uv isolated environment, guided layer, BYOD and reload
-fixes), so this record does not cover the current blob. No hosted run of the current blob exists yet.
+The 2026-09-17 record ran the previous notebook version; the notebook was regenerated afterwards (review PR #10: uv
+isolated environment, guided layer, BYOD and reload fixes). The 2026-10-04 record covers the current blob.
+
+### 2026-10-04 — Colab CLI, fresh Colab Tesla T4, blob `87a15e765580`
+
+- **Commit / notebook blob:** `fe3d5ba6dad24691471ebd1fd2b38f4931b417d0` / `87a15e765580cf8c7d65d6bbe0f2604a42953c0d`
+  (fetched byte-exact from `raw.githubusercontent.com` at the commit; blob checked before the VM was allocated).
+- **Executor:** Colab CLI 0.7.4 sequential execution (`colab exec -f`) on a fresh Colab VM, Tesla T4: every code cell
+  in order in one kernel. Not a browser **Run all**: forms were not rendered, no upload dialog was answered, and the
+  CLI records no execution counts — order is evidenced by `exec.log` (`Executing cell 1/16` … `16/16`).
+- **Path:** default settings only (`USE_BYOD = False`, `SEED = 42`, `EPOCHS = 3`, `LEARNING_RATE = 5e-5`,
+  `BATCH_SIZE = 4`, `VAL_FRACTION = 0.25`); clean VM: no cache, no `dimer_isolated_env/`, no pre-staged weights.
+- **Outcome:** one pass, no restart, 0 error outputs; 16/16 code cells (cells 4–6, the carried modules, print
+  nothing by design). Wall time 142.8 s (CLI session, including the uv install and the model download).
+- **Runtime (Section 1):** isolated Python 3.12.12 (kernel 3.13.15), 50 locked packages, setup 48 s; `torch`
+  2.14.0+cu130, `transformers` 4.57.6, `gliner` 0.2.29, CUDA available, device `cuda:0`;
+  `NOTEBOOK_SOURCE.repository_revision` `04b30e6` equals `metadata.dimer.generated_from.revision`.
+- **Sections 3–4:** 3 GLiNER files and 4 encoder files fetched and verified; 24 records split 18 / 6, no label missing
+  from validation, four rejected probes.
+- **Section 5 baseline:** micro F1 0.6857 (P 0.7059, R 0.6667), macro F1 0.6375.
+- **Section 6:** 11,418,112 trainable / 277,531,392 frozen parameters; epochs loss 11.3457 / 8.9581 / 6.8758,
+  validation micro F1 0.8108 / 0.9189 / 0.9189. The CPU check quoted in the guided answers gave 11.28 / 8.02 / 6.26
+  and 0.8108 / 0.8649 / 0.9189; the T4 history differs (likely GPU versus CPU arithmetic; not investigated), the final metrics do not.
+- **Section 7 adapted:** micro F1 0.9189 (P 0.8947, R 0.9444), macro F1 0.9188; deltas +0.2332 micro, +0.2813 macro
+  (`gene_protein` +0.7009, `chemical_drug` +0.1429, `disease` 0.0).
+- **Sections 8–11:** 3 entities on the sample sentence, all contract checks `True`; adapter 26 tensors (43.57 MB),
+  reload parity 26/26 tensors and 7/7 sentences identical; the four `outputs/` files listed; one row in the run table.
+- **Evidence files** (`docs/verification/2026-10-03-colab-t4/`, SHA-256):
+  - `gliner_ner_colab_fe3d5ba_colab-cli-t4_output.ipynb` `5e7f88c960e3ba5d9cb4c88df74d4b779c114b1348761bc8355fd36b185d655e`
+  - `run_summary.json` `21f7582edd8758de849253bbcbc0ce39b85518d93179e447e65eaa5e5cf20903`
+  - `exec.log` `c2471e66697c4002c98aefdb2181ccc50759883dada8b440d70d4453a5d0c6e9`
+- **Not exercised:** the BYOD positive and negative runs (procedure step 6), the Colab upload dialog, the optional
+  guided activities (Section 11 one-epoch row), and a browser **Run all**.
 
 ## Current status
 
-**Candidate.** Static checks pass. The only hosted run (Kaggle T4, 2026-09-17, blob `ecbaee88`) completed only after a
-manual restart, and it ran the previous notebook version. The current notebook installs its pins into an isolated
-environment so that no restart should be needed; that is established only by a one-pass hosted **Run all** of the
-current blob recorded here (procedure above), together with the BYOD positive and negative runs.
+**Candidate.** Static checks pass. The current blob (`87a15e765580`, commit `fe3d5ba`) completed one hosted pass with
+no restart and no errors on a fresh Colab Tesla T4 (Colab CLI sequential execution, 2026-10-04, default path). Still
+required before promotion: a one-pass **Run all** in the supported Colab path (or a Kaggle fresh-container run) as the
+procedure defines it, and the BYOD positive and negative runs (step 6).

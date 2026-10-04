@@ -13,7 +13,7 @@ MODEL_REVISION = "443d26d654e0324125a96bebd8e796c14ff2efe6"
 MODEL_LICENSE = "apache-2.0"
 MODEL_KEY = "gliner-multi-v2.1"
 ARTIFACT_FORMAT = "org.valcorza.gliner-ner.adapter.v1"
-ARTIFACT_FORMAT_VERSION = "1.0"
+ARTIFACT_FORMAT_VERSION = "1.1"  # 1.1 adds `adapter_manifest` (tensor names, shapes, dtypes, SHA-256)
 _WEIGHTS_ROOT = Path(__file__).resolve().parents[2] / "weights"
 DEFAULT_WEIGHTS_DIR = _WEIGHTS_ROOT / MODEL_KEY
 MANIFEST_NAME = "dimer-base-manifest.json"
@@ -297,6 +297,32 @@ def evaluation_report(
     }
 
 
+def _tensor_record(tensor: Any) -> dict[str, Any]:
+    """Shape, dtype and SHA-256 of a tensor's bytes (the adapter manifest entry)."""
+    data = tensor.detach().cpu().contiguous()
+    return {
+        "shape": list(data.shape),
+        "dtype": str(data.dtype).replace("torch.", ""),
+        "sha256": hashlib.sha256(data.numpy().tobytes()).hexdigest(),
+    }
+
+
+def _parameter_summary(model: Any) -> dict[str, Any]:
+    """Trainable and frozen parameter counts, in total and per top-level module (two name components)."""
+    trainable: dict[str, int] = {}
+    frozen: dict[str, int] = {}
+    for name, param in model.named_parameters():
+        module = ".".join(name.split(".")[:2])
+        bucket = trainable if param.requires_grad else frozen
+        bucket[module] = bucket.get(module, 0) + int(param.numel())
+    return {
+        "trainable_parameters": sum(trainable.values()),
+        "frozen_parameters": sum(frozen.values()),
+        "trainable_modules": dict(sorted(trainable.items())),
+        "frozen_modules": dict(sorted(frozen.items())),
+    }
+
+
 def _local_encoder_class(root: Path, encoder_dir: Path) -> type:
     """The concrete GLiNER class for this config, with `model_name` redirected to the verified encoder
     directory so the library reads the tokenizer and AutoConfig from disk (local_files_only, no cache)."""
@@ -325,6 +351,8 @@ class GLiNERPipeline:
     device: str
     load_warnings: list[str] = field(default_factory=list)
     model: Any = None
+    # True once `adapt` or `load_artifact` changed the weights in memory (no longer the pretrained model).
+    adapted: bool = False
 
     @classmethod
     def from_pretrained(
@@ -416,7 +444,6 @@ class GLiNERPipeline:
         from .metrics import evaluate_ner_dataset
         from .samples import validate_dataset
 
-        validate_dataset(records)
         if labels is None:
             extracted_labels = sorted({
                 s["label"]
@@ -430,6 +457,8 @@ class GLiNERPipeline:
             eval_labels = extracted_labels
         else:
             eval_labels = list(labels)
+        # An evaluation set must use only the evaluated labels, but need not contain every one of them.
+        validate_dataset(records, eval_labels, require_all_labels=False, min_records=1)
 
         predictions: list[list[dict[str, Any]]] = []
         for r in records:
@@ -465,17 +494,32 @@ class GLiNERPipeline:
         weight_decay: float = 0.01,
         threshold: float = DEFAULT_THRESHOLD,
         seed: int = 42,
+        labels: Sequence[str] | None = None,
     ) -> dict[str, Any]:
-        """Run bounded fine-tuning loop over domain records without external dependencies."""
+        """Run bounded fine-tuning loop over domain records without external dependencies.
+
+        `labels` is the entity-type set (default: every label in the training and validation records); each
+        must occur in `train_records`. A pipeline that was already adapted is refused: reload the pretrained
+        model first, so one call is one training run from the verified base.
+        """
         if self.model is None:
             raise RuntimeError("Cannot adapt: pipeline has no underlying PyTorch model loaded.")
-        from .samples import validate_dataset
+        if self.adapted:
+            raise RuntimeError(
+                "Cannot adapt: this pipeline was already adapted (or loaded an adapter) in memory, so "
+                "training would continue from those weights. Reload the pretrained model with "
+                "GLiNERPipeline.from_pretrained first."
+            )
+        from .samples import _labels_in, validate_dataset
 
-        validate_dataset(train_records)
         if not train_records:
             raise ValueError("train_records cannot be empty")
+        all_labels = sorted(labels) if labels is not None else _labels_in(
+            list(train_records) + (list(val_records) if val_records else [])
+        )
+        validate_dataset(train_records, all_labels)
         if val_records is not None:
-            validate_dataset(val_records)
+            validate_dataset(val_records, all_labels, require_all_labels=False, min_records=1)
 
         import random
 
@@ -496,15 +540,11 @@ class GLiNERPipeline:
         trainable_params = [p for p in self.model.parameters() if p.requires_grad]
         if not trainable_params:
             raise RuntimeError("No trainable parameters found for adaptation.")
+        parameter_summary = _parameter_summary(self.model)
+        self.adapted = True  # from here on the weights in memory are no longer the pretrained ones
 
         optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate, weight_decay=weight_decay)
         collator = self.model._create_data_collator()
-
-        all_labels = sorted({
-            span[2]
-            for r in (list(train_records) + (list(val_records) if val_records else []))
-            for span in r.get("ner", [])
-        })
 
         history: list[dict[str, Any]] = []
         n_train = len(train_records)
@@ -567,6 +607,10 @@ class GLiNERPipeline:
             "learning_rate": learning_rate,
             "batch_size": batch_size,
             "freeze_text_encoder": freeze_text_encoder,
+            "weight_decay": weight_decay,
+            "seed": seed,
+            "labels": all_labels,
+            **parameter_summary,
             "train_samples": n_train,
             "val_samples": len(val_records) if val_records else 0,
             "history": history,
@@ -609,6 +653,7 @@ class GLiNERPipeline:
                 "encoder_revision": ENCODER_REVISION,
             },
             "adapter_state_dict": adapter_weights,
+            "adapter_manifest": {name: _tensor_record(t) for name, t in sorted(adapter_weights.items())},
             "metadata": metadata or {},
         }
         torch.save(payload, path)
@@ -637,15 +682,62 @@ class GLiNERPipeline:
             raise ValueError(
                 f"Artifact base model mismatch: {base.get('model_id')!r} != {MODEL_ID!r}"
             )
+        expected_base = {
+            "model_revision": MODEL_REVISION,
+            "encoder_model_id": ENCODER_MODEL_ID,
+            "encoder_revision": ENCODER_REVISION,
+        }
+        for key, value in expected_base.items():
+            if base.get(key) != value:
+                raise ValueError(
+                    f"Artifact base {key} mismatch: {base.get(key)!r} != {value!r}; the adapter was trained "
+                    "on a different base snapshot and cannot be overlaid on this one"
+                )
 
-        weights = payload["adapter_state_dict"]
+        weights = payload.get("adapter_state_dict")
+        if not isinstance(weights, dict) or not weights:
+            raise ValueError("Artifact adapter_state_dict is empty or missing: no adapter tensors to load")
+        model_state = self.model.state_dict()
+        unexpected = sorted(k for k in weights if k not in model_state)
+        if unexpected:
+            raise ValueError(
+                f"Artifact holds {len(unexpected)} tensor name(s) this model does not have "
+                f"(e.g. {unexpected[:3]}): the adapter is for another architecture or its keys were renamed"
+            )
+        mismatched = sorted(k for k, v in weights.items() if tuple(v.shape) != tuple(model_state[k].shape))
+        if mismatched:
+            raise ValueError(f"Artifact tensor shapes differ from the model for {mismatched[:3]}")
+        manifest = payload.get("adapter_manifest")
+        if manifest is not None or payload.get("format_version") != "1.0":
+            if not isinstance(manifest, dict) or sorted(manifest) != sorted(weights):
+                raise ValueError("Artifact adapter_manifest is missing or does not list exactly its tensors")
+            corrupt = sorted(k for k, v in weights.items() if _tensor_record(v) != manifest[k])
+            if corrupt:
+                raise ValueError(f"Adapter tensors differ from manifest: {corrupt[:3]}")
+
         weights = {
             k: v.to(self.device) if hasattr(v, "to") else v
             for k, v in weights.items()
         }
-        self.model.load_state_dict(weights, strict=False)
+        result = self.model.load_state_dict(weights, strict=False)
+        # strict=False only because the adapter is a subset of the model; every tensor must be consumed.
+        if list(getattr(result, "unexpected_keys", [])):
+            raise ValueError(f"Adapter tensors not consumed by the model: {list(result.unexpected_keys)[:3]}")
+        self.adapted = True
         self.model.eval()
         return payload.get("metadata", {})
+
+    def adapter_parity(self, other: GLiNERPipeline, names: Sequence[str]) -> dict[str, Any]:
+        """Compare the named tensors of this pipeline's model with `other`'s exactly (reload check)."""
+        if self.model is None or other.model is None:
+            raise RuntimeError("Both pipelines need a loaded model to compare adapter tensors.")
+        mine, theirs = self.model.state_dict(), other.model.state_dict()
+        differing = [n for n in names if _tensor_record(mine[n]) != _tensor_record(theirs[n])]
+        return {
+            "tensors_compared": len(names),
+            "tensors_identical": len(names) - len(differing),
+            "differing": differing[:5],
+        }
 
     @classmethod
     def from_artifact(

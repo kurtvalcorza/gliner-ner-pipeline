@@ -1,6 +1,6 @@
 """Static release-asset validation for the GLiNER multi-v2.1 zero-shot NER DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.0 §4), the tutorial
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4), the tutorial
 registry, model card, README, STATUS.md and weight documentation for source conformance and
 cross-document identity consistency, and runs the generator parity checks (PAR1–PAR3).
 
@@ -50,24 +50,44 @@ CODE_MARKERS = (
     "_extra = verify_encoder_snapshot(ENCODER_WEIGHTS_DIR)",
     # Stage 4: Dataset loading and validation
     "USE_BYOD = False",
-    "val_manifest = validate_dataset(raw_dataset)",
-    "train_records, val_records = split_ner_dataset(raw_dataset, val_fraction=VAL_FRACTION, seed=SEED)",
+    "val_manifest = validate_dataset(raw_dataset, LABELS)",
+    "train_records, val_records = split_ner_dataset(raw_dataset, val_fraction=VAL_FRACTION, seed=SEED, labels=LABELS)",
+    # GL-M3 / GL-m5: any label set, a path as well as an upload, the schema and limits printed first, coverage reported
+    "BYOD_PATH = ''",
+    "BYOD_LABELS = ''",
+    "BYOD_INFERENCE_TEXT = ''",
+    "print({'record_schema': RECORD_SCHEMA_HINT,",
+    "'records_min': minimum_records(VAL_FRACTION)",
+    "if len(uploaded) != 1:",
+    "raw_dataset = load_byod_dataset(byod_path, allowed_labels=declared_labels)",
+    "coverage = split_label_coverage(train_records, val_records, LABELS)",
+    # GL-m4: the load warnings are printed; GL-M2: Sections 5 and 6 start from the pretrained model
+    "print({'load_warnings': pipe.load_warnings})",
+    "def reset_to_pretrained():",
+    "    pipe = GLiNERPipeline.from_pretrained(weights_dir=WEIGHTS_DIR, encoder_dir=ENCODER_WEIGHTS_DIR)",
     # Stage 5: Zero-shot baseline evaluation
-    "baseline_eval = pipe.evaluate(val_records, labels=ADAPT_CLASSES)",
+    "reset_to_pretrained()\nbaseline_eval = pipe.evaluate(val_records, labels=LABELS)",
     # Stage 6: Bounded fine-tuning
-    "adapt_result = pipe.adapt(",
+    "reset_to_pretrained()\nstarted = time.perf_counter()\nadapt_result = pipe.adapt(",
     "freeze_text_encoder=True",
-    # Stage 7: Post-adaptation evaluation and delta calculation
-    "adapted_eval = pipe.evaluate(val_records, labels=ADAPT_CLASSES)",
+    "    labels=LABELS,\n)",
+    "print({'trainable_parameters': adapt_result['trainable_parameters'], 'frozen_parameters': adapt_result['frozen_parameters']})",
+    # Stage 7: Post-adaptation evaluation and delta calculation (GL-m3: labelled tutorial evidence)
+    "adapted_eval = pipe.evaluate(val_records, labels=LABELS)",
     "delta_f1 = round(adapted_eval['micro']['f1'] - baseline_eval['micro']['f1'], 4)",
+    "'evidence': evidence_note,",
+    "print('Reading: ' + evidence_note + '.')",
+    "run_history = globals().get('run_history', [])",
     # Stage 8: Unseen text inference and span verification
-    "inference_result = pipe.detect(test_sentence, labels=ADAPT_CLASSES, threshold=DEFAULT_THRESHOLD)",
+    "inference_result = pipe.detect(test_sentence, labels=LABELS, threshold=DEFAULT_THRESHOLD)",
     "entities = inference_result['entities']",
     "'span_text_matches': all(test_sentence[e['start']:e['end']] == e['text'] for e in entities)",
-    # Stage 9: Adapter export and reload parity check
+    # Stage 9: Adapter export and reload parity check (GL-m2: every tensor, every validation sentence)
     "pipe.save_artifact(",
     "reloaded_pipe = GLiNERPipeline.from_artifact(",
-    "reloaded_res = reloaded_pipe.detect(test_sentence, labels=ADAPT_CLASSES, threshold=DEFAULT_THRESHOLD)",
+    "tensor_parity = pipe.adapter_parity(reloaded_pipe, list(adapter_manifest))",
+    "parity_texts = [r['text'] for r in val_records] + [test_sentence]",
+    "raise RuntimeError(f'Reload parity failed: predictions differ",
     # Stage 10: Metadata and lineage export
     "writer.writerow(['index', 'start', 'end', 'label', 'score', 'text'])",
     "'encoder_model_id': ENCODER_MODEL_ID",
@@ -85,9 +105,45 @@ CODE_MARKERS = (
 MARKDOWN_MARKERS = (
     "**Capability:** zero-shot and domain-adapted named-entity recognition with arbitrary label sets",
     "`fix_mistral_regex`",
-    "mDeBERTa-v3 text encoder backbone is frozen",
+    "**Freezing** the mDeBERTa text encoder",
     "Exact-span F1 requires exact agreement",
     "relation extraction, coreference resolution",
+    # GL-m3: the delta is read with its sample size and caveats
+    "**How much to read into it.**",
+    "**tutorial evidence, not a benchmark**",
+    # GL-M3: the record schema is stated in the Prerequisites
+    "- **Data contract:**",
+)
+# Learner-facing text the review fixes removed; it must not come back (GL-M1 restart/install text, GL-M2 the
+# "re-run from that cell" instruction, GL-m4 the coverage, trainable-layer and load-warning claims, GL-m2 the
+# unverified "parameter match").
+STALE_MARKDOWN = (
+    "its restart",
+    "Restart the runtime, then rerun",
+    "installs the pinned dependencies",
+    "re-run from that cell",
+    "class coverage preserved",
+    "class balance preserved",
+    "only the span representation and prompt projection layers are updated",
+    "is captured in `load_warnings`",
+    "parameter match",
+)
+# The guided layer (NOTEBOOK_SPEC 2.2 §3.5, GDL1-GDL15; review GL-M4): each marker with its minimum count.
+GUIDED_MARKERS = (
+    ("**Who this is for.**", 1),
+    ("**Input → Model → Output.**", 1),
+    ("**How to use this notebook.**", 1),
+    ("**Roadmap:**", 1),
+    ("**Predict before running:**", 6),
+    ("**What to notice:**", 7),
+    ("<summary>Check your reasoning</summary>", 7),
+    ("## 11. Your turn — change one thing", 1),
+    ("**Predict → Change one thing → Run → Observe → Explain**", 1),
+    ("## Troubleshooting", 1),
+    ("## Glossary", 1),
+    ("## Conclusion (your notes)", 1),
+    ("> **Infrastructure.**", 3),
+    ("**Optional experiments", 1),
 )
 # Direct-library use that must stay inside the carried module cell (G2: the notebook calls the
 # pipeline API, it does not reimplement it). Checked on every code cell except the embedded one.
@@ -109,10 +165,10 @@ FORBIDDEN_OUTSIDE_MODULE = (
 # ---------------------------------------------------------------------------
 # Shared checks. Everything below is source/structure validation only. Passing
 # these checks is NOT clean-runtime execution evidence under DIMER Notebook
-# Specification 2.0; see docs/release-verification.md for the release gate.
+# Specification 2.2; see docs/release-verification.md for the release gate.
 # ---------------------------------------------------------------------------
 
-NOTEBOOK_SPEC = "2.0"
+NOTEBOOK_SPEC = "2.2"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
@@ -530,8 +586,13 @@ def _validate_embedded_modules(path: Path, notebook: dict, build) -> list[int]:
             cell["metadata"]["dimer"].get("module_sha256") == context["per_module_sha256"][rel],
             f"{path.name}: cell {index} module_sha256 tag does not match {rel}",
         )
+        # GL-M4: the carried cell is the module plus the generator's one Infrastructure title line, collapsed.
         _check(
-            _cell_source(cell).rstrip("\n") + "\n" == context["embedded"][module],
+            _cell_source(cell).startswith(build.CARRIED_TITLE_PREFIX) and cell.get("metadata", {}).get("cellView") == "form",
+            f"{path.name}: carried module cell {index} must start with the generator's Infrastructure title and be collapsed (cellView: form)",
+        )
+        _check(
+            build.strip_carried_title(_cell_source(cell)).rstrip("\n") + "\n" == context["embedded"][module],
             f"{path.name}: embedded module cell {index} differs from {rel} (PAR1); regenerate the notebook",
         )
     return [index for index, _ in tagged]
@@ -588,7 +649,7 @@ def _validate_bootstrap_guard(path: Path, code_cells: list[tuple[int, str, ast.M
 
 
 def _validate_notebook_content(
-    path: Path, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int]
+    path: Path, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int], notebook: dict
 ) -> None:
     model_id, _revision = _package_identity()
     stripped = {index: _strip_comments(source) for index, source, _ in code_cells}
@@ -600,6 +661,27 @@ def _validate_notebook_content(
     _check(not present, f"{path.name}: forbidden/insecure source: {present}")
     leaked = [marker for marker in FORBIDDEN_OUTSIDE_MODULE if marker in outside]
     _check(not leaked, f"{path.name}: direct library use outside the carried module cell (G2): {leaked}")
+    # GL-M1: the kernel install cell (pinned uv wheel, managed CPython, hash-locked requirements) and the router are
+    # the only two cells that run in the notebook kernel; every later cell runs in the isolated environment.
+    kernel = {index for index, source, _tree in code_cells if "# dimer: kernel cell" in source}
+    kernel_raw = "\n".join(source for index, source, _tree in code_cells if index in kernel)
+    _check(len(kernel) == 2, f"{path.name}: exactly two kernel cells (isolated install and router) are expected (GL-M1)")
+    install = next((source for index, source, _tree in code_cells if index in kernel and "LOCK_TEXT = r" in source), "")
+    for needed in ('"--managed-python"', '"--require-hashes"', '"--only-binary"', '":all:"', "UV_SHA256", "LOCK_SHA256", 'platform.machine() != "x86_64"'):
+        _check(needed in install, f"{path.name}: the isolated install cell must use {needed} (GL-M1)")
+    _check("_ip.input_transformers_cleanup.append(_route_to_isolated_runtime)" in kernel_raw, f"{path.name}: later cells must be routed to the isolated environment (GL-M1)")
+    _check("module.__spec__ = importlib.machinery.ModuleSpec(name, None, is_package=package)" in kernel_raw, f"{path.name}: the worker's google.colab stubs must carry a module spec")
+    stale = [marker for marker in STALE_MARKDOWN if marker in markdown]
+    _check(not stale, f"{path.name}: stale learner-facing text: {stale}")
+    _check("{{" not in markdown and "}}" not in markdown, f"{path.name}: markdown must not show doubled braces")
+    learner = "\n".join(text for index, text in stripped.items() if index not in embedded and index not in kernel)
+    _check("\nassert " not in "\n" + learner, f"{path.name}: learner cells must not use a bare assert (GL-m2)")
+    short = [(marker, markdown.count(marker), least) for marker, least in GUIDED_MARKERS if markdown.count(marker) < least]
+    _check(not short, f"{path.name}: guided layer incomplete (marker, found, needed): {short}")
+    # GDL11 (GL-M4): every setup cell (install, router, runtime record, carried modules, model) is collapsed and titled.
+    setup = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"][: 3 + len(embedded) + 1]
+    _check(all(cell.get("metadata", {}).get("cellView") == "form" for cell in setup), f"{path.name}: Sections 1-3 code cells must be collapsed (cellView: form) (GL-M4)")
+    _check(all(_cell_source(cell).startswith("# @title Infrastructure: ") for cell in setup), f"{path.name}: Sections 1-3 code cells must be titled '# @title Infrastructure: ...' (GL-M4)")
     _check(
         f"pipe = {MODEL_LOAD_EXPR}" in outside,
         f"{path.name}: must load through {MODEL_LOAD_EXPR} (INF1)",
@@ -627,7 +709,7 @@ def validate_notebooks() -> None:
     _model_id, revision = _package_identity()
     _validate_identity(path, code_cells, embedded, revision)
     _validate_parity(path, notebook, code_cells, build)
-    _validate_notebook_content(path, code_cells, markdown, embedded)
+    _validate_notebook_content(path, code_cells, markdown, embedded, notebook)
     registry = _read(tutorials / "README.md")
     _check(f"`{path.name}`" in registry, f"{path.name} missing from tutorials/README.md")
     _check(f"`{EXPECTED_PROFILE}`" in registry, f"tutorials/README.md must record `{EXPECTED_PROFILE}`")

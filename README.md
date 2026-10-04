@@ -55,7 +55,7 @@ Tests are offline: they use an injected fake runner and temporary manifests (bot
 
 ## Release status
 
-**Candidate.** Static/unit checks — including the standalone generator parity checks (`tools/build_notebook.py --check`, `tests/test_notebook_parity.py`) — do not constitute clean-runtime notebook evidence, and the standalone carrier has never been executed. Complete `docs/release-verification.md` against the exact release revision before calling the notebook release-grade.
+**Candidate.** Static/unit checks — including the standalone generator parity checks (`tools/build_notebook.py --check`, `tests/test_notebook_parity.py`) — do not constitute clean-runtime notebook evidence. The only hosted run (Kaggle T4, 2026-09-17) ran the previous notebook version and completed only after a manual restart after the install cell; the current notebook (uv isolated environment, Linux x86_64 runtimes) has not been run on a hosted runtime yet. Complete `docs/release-verification.md` against the exact release revision, with a one-pass **Run all**, before calling the notebook release-grade.
 
 ## Licensing
 

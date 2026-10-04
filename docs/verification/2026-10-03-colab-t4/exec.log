@@ -1,0 +1,85 @@
+[colab] Parsing notebook '/home/kurt/colab-runs/gliner-ner-pipeline-fe3d5ba-35243b/gliner_ner_colab_fe3d5ba_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/16 - Infrastructure: install the locked runtime into an isolated environment...
+{'isolated_environment': '/content/dimer_isolated_env', 'isolated_python': '3.12.12', 'kernel_python': '3.13.15', 'locked_packages': 50, 'setup_seconds': 48}
+[colab] Executing cell 2/16 - Infrastructure: route the remaining cells to the isolated environment...
+Every later code cell now runs in /content/dimer_isolated_env/bin/python (pid 1157).
+[colab] Executing cell 3/16 - Infrastructure: record the runtime...
+/content/dimer_isolated_env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+{'notebook_source': {'repository': 'gliner-ner-pipeline', 'repository_revision': '04b30e615194b56d13b12ea513cd09720ce2d925', 'embedded_module': 'src/gliner_ner_pipeline/pipeline.py', 'embedded_modules': ['src/gliner_ner_pipeline/metrics.py', 'src/gliner_ner_pipeline/pipeline.py', 'src/gliner_ner_pipeline/samples.py'], 'module_sha256': '5636cd0d2dbc93e14bc1a0d7615a80e92e955ca5a4c4c1407c371d396495761a', 'generator': 'build_notebook.py/2.1', 'notebook_spec': '2.2'}, 'python': '3.12.12', 'torch': '2.14.0+cu130', 'transformers': '4.57.6', 'gliner': '0.2.29', 'cuda': True}
+[colab] Executing cell 4/16 - Infrastructure: carried module `src/gliner_ner_pipeline/metrics.py` (you may run it without reading it)...
+[colab] Executing cell 5/16 - Infrastructure: carried module `src/gliner_ner_pipeline/pipeline.py` (you may run it without reading it)...
+[colab] Executing cell 6/16 - Infrastructure: carried module `src/gliner_ner_pipeline/samples.py` (you may run it without reading it)...
+[colab] Executing cell 7/16 - Infrastructure: pin, stage and verify the model (you may run it without reading it)...
+{'model_id': 'urchade/gliner_multi-v2.1', 'revision': '443d26d654e0324125a96bebd8e796c14ff2efe6', 'license': 'apache-2.0', 'files': 3, 'total_bytes': 1155835359}
+{'weights_dir': '/content/weights/gliner-multi-v2.1', 'fetched': ['README.md', 'gliner_config.json', 'model.safetensors']}
+{'verified_files': 3, 'revision': '443d26d654e0324125a96bebd8e796c14ff2efe6'}
+{'weights_dir': '/content/weights/mdeberta-v3-base-tokenizer', 'fetched': ['README.md', 'config.json', 'spm.model', 'tokenizer_config.json']}
+{'verified_files_mdeberta_v3_base_tokenizer': 4}
+The tokenizer you are loading from '/content/weights/mdeberta-v3-base-tokenizer' with an incorrect regex pattern: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503/discussions/84#69121093e8b480e709447d5e. This will lead to incorrect tokenization. You should set the `fix_mistral_regex=True` flag when loading this tokenizer to fix this issue.
+{'device': 'cuda:0', 'source': 'local-snapshot'}
+[colab] Executing cell 8/16 - gliner_ner-17...
+{'load_warnings': ['UserWarning: The sentencepiece tokenizer that you are converting to a fast tokenizer uses the byte fallback option which is not implemented in the fast tokenizers. In practice this means that the fast version of the tokenizer can produce unknown tokens whereas the sentencepiece version would have converted these unknown tokens into a sequence of byte tokens matching the original piece of text.']}
+[colab] Executing cell 9/16 - gliner_ner-19...
+{'record_schema': 'each record is {id: str, tokenized_text (or tokens): [str, ...], ner: [[start_token, end_token, label], ...]} with token indices counted from 0 and an inclusive end', 'file_types': ['.json', '.jsonl'], 'example_jsonl_lines': ['{"id": "doc-1", "tokenized_text": ["Ada", "Lovelace", "worked", "in", "London", "."], "ner": [[0, 1, "person"], [4, 4, "location"]]}', '{"id": "doc-2", "tokenized_text": ["Grace", "Hopper", "joined", "the", "US", "Navy", "."], "ner": [[0, 1, "person"], [4, 5, "organization"]]}']}
+{'limits': {'records_min': 14, 'records_max': 1000, 'records_min_per_split': 4, 'tokens_per_record_max': 384, 'chars_per_token_max': 100, 'labels_max': 25, 'chars_per_label_max': 100, 'inference_text_chars_max': 5000}}
+{'data_source': 'Synthetic biomedical dataset (24 records)', 'labels': ['disease', 'chemical_drug', 'gene_protein'], 'total_records': 24, 'train_records': 18, 'val_records': 6, 'dataset_sha256': 'ed10b1db454078f1...'}
+{'span_counts': {'train_spans': {'disease': 19, 'chemical_drug': 19, 'gene_protein': 21}, 'validation_spans': {'disease': 6, 'chemical_drug': 6, 'gene_protein': 6}, 'labels_missing_from_validation': []}}
+{'example': {'id': 'bio-017', 'tokenized_text': ['Bortezomib', 'disrupts', 'PSMB5', 'proteasome', 'activity', 'in', 'multiple', 'myeloma', '.'], 'ner': [[0, 0, 'chemical_drug'], [2, 2, 'gene_protein'], [6, 7, 'disease']], 'text': 'Bortezomib disrupts PSMB5 proteasome activity in multiple myeloma.', 'character_spans': [(0, 10, 'chemical_drug', 'Bortezomib'), (20, 25, 'gene_protein', 'PSMB5'), (49, 65, 'disease', 'multiple myeloma')]}}
+{'probe': 'duplicate id', 'rejected': "record[1] duplicates id 'same'"}
+{'probe': 'span past the last token', 'rejected': 'record[0] span[0] end index 99 out of bounds for 9 tokens'}
+{'probe': 'span written as an object', 'rejected': 'record[0] span[0] must be a list [start_token, end_token, label] (inclusive end, e.g. [0, 1, "person"]), got dict {\'start\': 0, \'end\': 0, \'label\': \'dis'}
+{'probe': 'too few records to split', 'rejected': 'the validation split would hold 1 records (train 4, validation 1 of 5 at val_fraction=0.25); each split needs at least 4. Supply at least 14 records a'}
+[colab] Executing cell 10/16 - gliner_ner-21...
+Asking to truncate to max_length but no maximum length is provided and the model has no predefined maximum length. Default to no truncation.
+Zero-shot baseline on the validation split (6 sentences, threshold 0.5):
+label            gold predicted  hits precision  recall      F1
+disease             6         6     5    0.8333  0.8333  0.8333
+chemical_drug       6         8     6    0.7500  1.0000  0.8571
+gene_protein        6         3     1    0.3333  0.1667  0.2222
+micro (pooled)                     12    0.7059  0.6667  0.6857
+macro F1 (mean of labels)                                 0.6375
+[colab] Executing cell 11/16 - gliner_ner-23...
+{'trainable_parameters': 11418112, 'frozen_parameters': 277531392}
+{'trainable_modules': {'model.prompt_rep_layer': 2099712, 'model.rnn': 1576960, 'model.span_rep_layer': 7347712, 'model.token_rep_layer': 393728}, 'frozen_modules': {'model.token_rep_layer': 277531392}}
+Adaptation completed in 1.6 s (3 epochs, learning rate 5e-05, batch size 4, seed 42).
+  Epoch 1: loss=11.3457  validation micro F1=0.8108
+  Epoch 2: loss=8.9581  validation micro F1=0.9189
+  Epoch 3: loss=6.8758  validation micro F1=0.9189
+[colab] Executing cell 12/16 - gliner_ner-25...
+Adapted model on the validation split:
+label            gold predicted  hits precision  recall      F1
+disease             6         6     5    0.8333  0.8333  0.8333
+chemical_drug       6         6     6    1.0000  1.0000  1.0000
+gene_protein        6         7     6    0.8571  1.0000  0.9231
+micro (pooled)                     17    0.8947  0.9444  0.9189
+macro F1 (mean of labels)                                 0.9188
+
+Micro F1 0.6857 -> 0.9189 (+0.2332); macro F1 0.6375 -> 0.9188 (+0.2813)
+{'per_label_f1_delta': {'disease': 0.0, 'chemical_drug': 0.1429, 'gene_protein': 0.7009}}
+Reading: tutorial evidence: 6 validation sentences, 18 gold spans; the validation split also monitored training (no independent test split); one sentence template; the label names were part of the training.
+Runs so far in this session:
+  1. {'data': 'Synthetic biomedical dataset (24 records)', 'epochs': 3, 'learning_rate': 5e-05, 'seed': 42, 'epoch1_loss': 11.345737, 'baseline_micro_f1': 0.6857, 'adapted_micro_f1': 0.9189, 'adapted_macro_f1': 0.9188}
+[colab] Executing cell 13/16 - gliner_ner-27...
+Input: "Pembrolizumab blocks PDCD1 receptor to treat metastatic melanoma in adult patients."
+Detected 3 entities (checks: {'offsets_inside_text': True, 'span_text_matches': True, 'labels_valid': True}):
+  1. [ 0:13] chemical_drug  (score=0.9936): Pembrolizumab
+  2. [21:26] gene_protein   (score=0.9507): PDCD1
+  3. [45:64] disease        (score=0.9957): metastatic melanoma
+[colab] Executing cell 14/16 - gliner_ner-29...
+Saved adapter artifact: outputs/gliner_ner_adapter.pt (43.57 MB, 26 tensors)
+The tokenizer you are loading from '/content/weights/mdeberta-v3-base-tokenizer' with an incorrect regex pattern: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503/discussions/84#69121093e8b480e709447d5e. This will lead to incorrect tokenization. You should set the `fix_mistral_regex=True` flag when loading this tokenizer to fix this issue.
+Asking to truncate to max_length but no maximum length is provided and the model has no predefined maximum length. Default to no truncation.
+{'reload_parity': {'adapter_tensors': {'tensors_compared': 26, 'tensors_identical': 26, 'differing': []}, 'sentences_compared': 7, 'sentences_identical': 7}}
+Parity verification passed: the reloaded artifact has identical adapter tensors and identical predictions.
+[colab] Executing cell 15/16 - gliner_ner-31...
+Generated release artifacts under outputs/:
+  - gliner_ner_adapter.pt (44614.9 KB)
+  - gliner_ner_entities.csv (0.2 KB)
+  - gliner_ner_evaluation_report.json (4.9 KB)
+  - gliner_ner_result.json (7.8 KB)
+[colab] Executing cell 16/16 - gliner_ner-33...
+run   epochs  learning_rate  seed  epoch1_loss  baseline_F1  adapted_F1  adapted_macro
+1          3          5e-05    42      11.3457       0.6857      0.9189         0.9188
+One run so far: follow steps 2-3 above to add a one-epoch row.
+[colab] Saving notebook with outputs to '/home/kurt/colab-runs/gliner-ner-pipeline-fe3d5ba-35243b/gliner_ner_colab_fe3d5ba_colab-cli-t4_output.ipynb'...

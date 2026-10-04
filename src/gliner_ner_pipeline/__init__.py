@@ -35,6 +35,8 @@ from .samples import (
     SAMPLE_BIOMEDICAL_DATASET,
     generate_synthetic_ner_dataset,
     load_byod_dataset,
+    minimum_records,
+    split_label_coverage,
     split_ner_dataset,
     validate_dataset,
 )
@@ -67,6 +69,8 @@ __all__ = [
     "evaluation_report",
     "generate_synthetic_ner_dataset",
     "load_byod_dataset",
+    "minimum_records",
+    "split_label_coverage",
     "split_ner_dataset",
     "stage_missing_encoder_files",
     "stage_missing_files",

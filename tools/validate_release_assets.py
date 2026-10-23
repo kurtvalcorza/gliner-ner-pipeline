@@ -37,7 +37,7 @@ BYOD_GATES = ("USE_BYOD",)
 # Machine-readable artifacts the notebook must write (OUT1-OUT3, DAT24, EVAL21).
 EXPECTED_OUTPUTS = (
     "outputs/gliner_ner_evaluation_report.json",
-    "outputs/gliner_ner_adapter.pt",
+    "outputs/gliner_ner_adapter.safetensors",
     "outputs/gliner_ner_result.json",
     "outputs/gliner_ner_entities.csv",
 )

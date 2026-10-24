@@ -14,6 +14,7 @@ from gliner_ner_pipeline import (
     ADAPT_CLASSES,
     ARTIFACT_FORMAT,
     ARTIFACT_FORMAT_VERSION,
+    ARTIFACT_METADATA_KEY,
     DATASET_REPRESENTATION,
     DEFAULT_THRESHOLD,
     MODEL_ID,
@@ -315,21 +316,25 @@ def test_pipeline_artifact_save_and_reload(tmp_path: Path):
         model=mock_model,
     )
 
-    artifact_file = tmp_path / "gliner_biomed_adapter.pt"
+    artifact_file = tmp_path / "gliner_biomed_adapter.safetensors"
     pipe.save_artifact(
         artifact_file,
         metadata={"test_run": True, "epochs": 3},
     )
     assert artifact_file.is_file()
 
-    # Verify contents of artifact dictionary
-    payload = torch.load(artifact_file, map_location="cpu", weights_only=False)
+    # Verify contents: tensors and plain-JSON header, read with safetensors only (no pickle)
+    from safetensors import safe_open
+
+    with safe_open(str(artifact_file), framework="pt", device="cpu") as handle:
+        tensor_names = set(handle.keys())
+        payload = json.loads(handle.metadata()[ARTIFACT_METADATA_KEY])
     assert payload["format"] == ARTIFACT_FORMAT
     assert payload["format_version"] == ARTIFACT_FORMAT_VERSION
     assert payload["base_model"]["model_id"] == MODEL_ID
-    assert "fc.weight" in payload["adapter_state_dict"]
+    assert "fc.weight" in tensor_names
     # Verify frozen layer was excluded from adapter weights
-    assert "frozen_layer.weight" not in payload["adapter_state_dict"]
+    assert "frozen_layer.weight" not in tensor_names
 
     # Reload into fresh pipeline instance
     fresh_mock = _MockModel()
@@ -346,16 +351,28 @@ def test_pipeline_artifact_save_and_reload(tmp_path: Path):
 def test_pipeline_load_artifact_validation_errors(tmp_path: Path):
     pipe = GLiNERPipeline(_runner=lambda text, labels, threshold: [], device="cpu", model=_MockModel())
 
-    with pytest.raises(FileNotFoundError):
-        pipe.load_artifact(tmp_path / "non_existent.pt")
+    from safetensors.torch import save_file
 
-    bad_format_file = tmp_path / "bad_format.pt"
-    torch.save({"format": "wrong_format"}, bad_format_file)
+    def write(path, header):
+        metadata = {ARTIFACT_METADATA_KEY: json.dumps(header)}
+        save_file({"fc.weight": torch.zeros(2, 4)}, str(path), metadata=metadata)
+        return path
+
+    with pytest.raises(FileNotFoundError):
+        pipe.load_artifact(tmp_path / "non_existent.safetensors")
+
+    bad_format_file = write(tmp_path / "bad_format.safetensors", {"format": "wrong_format"})
     with pytest.raises(ValueError, match="Artifact format mismatch"):
         pipe.load_artifact(bad_format_file)
 
-    bad_model_file = tmp_path / "bad_model.pt"
-    torch.save({"format": ARTIFACT_FORMAT, "base_model": {"model_id": "wrong_model"}}, bad_model_file)
+    bad_model_file = write(
+        tmp_path / "bad_model.safetensors",
+        {
+            "format": ARTIFACT_FORMAT,
+            "format_version": ARTIFACT_FORMAT_VERSION,
+            "base_model": {"model_id": "wrong_model"},
+        },
+    )
     with pytest.raises(ValueError, match="Artifact base model mismatch"):
         pipe.load_artifact(bad_model_file)
 

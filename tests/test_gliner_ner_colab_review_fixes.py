@@ -282,19 +282,23 @@ def _mock_pipe():
 
 def test_tampered_adapters_are_refused_with_named_errors(tmp_path):
     torch, pipe = _mock_pipe()
-    path = pipe.save_artifact(tmp_path / "a.pt")
-    payload = torch.load(path, map_location="cpu", weights_only=True)
-    assert sorted(payload["adapter_manifest"]) == ["fc.bias", "fc.weight"] and payload["format_version"] == "1.1"
+    from safetensors.torch import load_file, save_file
+
+    path = pipe.save_artifact(tmp_path / "a.safetensors")
+    header = pipeline_module.read_artifact_header(path)
+    tensors = load_file(str(path))
+    assert sorted(header["adapter_manifest"]) == ["fc.bias", "fc.weight"] and header["format_version"] == "2.0"
     cases = {
-        "empty or missing": {**payload, "adapter_state_dict": {}, "adapter_manifest": {}},
-        "does not have": {**payload, "adapter_state_dict": {"x." + k: v for k, v in payload["adapter_state_dict"].items()}},
-        "model_revision mismatch": {**payload, "base_model": {**payload["base_model"], "model_revision": "0" * 40}},
-        "encoder_revision mismatch": {**payload, "base_model": {**payload["base_model"], "encoder_revision": "0" * 40}},
-        "differ from manifest": {**payload, "adapter_state_dict": {k: v + 1 for k, v in payload["adapter_state_dict"].items()}},
+        "empty or missing": ({}, {**header, "adapter_manifest": {}}),
+        "does not have": ({"x." + k: v for k, v in tensors.items()}, header),
+        "model_revision mismatch": (tensors, {**header, "base_model": {**header["base_model"], "model_revision": "0" * 40}}),
+        "encoder_revision mismatch": (tensors, {**header, "base_model": {**header["base_model"], "encoder_revision": "0" * 40}}),
+        "differ from manifest": ({k: v + 1 for k, v in tensors.items()}, header),
+        "format_version mismatch": (tensors, {**header, "format_version": "1.1"}),
     }
-    for message, tampered in cases.items():
-        bad = tmp_path / "bad.pt"
-        torch.save(tampered, bad)
+    for message, (bad_tensors, bad_header) in cases.items():
+        bad = tmp_path / "bad.safetensors"
+        save_file(bad_tensors, str(bad), metadata={"dimer_artifact": json.dumps(bad_header)})
         fresh = _mock_pipe()[1]
         with pytest.raises(ValueError, match=message):
             fresh.load_artifact(bad)
@@ -303,7 +307,7 @@ def test_tampered_adapters_are_refused_with_named_errors(tmp_path):
 
 def test_reload_marks_adapted_and_tensor_parity_is_exact(tmp_path):
     _torch, pipe = _mock_pipe()
-    path = pipe.save_artifact(tmp_path / "a.pt")
+    path = pipe.save_artifact(tmp_path / "a.safetensors")
     fresh = _mock_pipe()[1]
     assert fresh.adapter_parity(pipe, ["fc.weight", "fc.bias"])["tensors_identical"] == 0
     fresh.load_artifact(path)

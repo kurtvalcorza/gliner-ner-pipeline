@@ -13,7 +13,13 @@ MODEL_REVISION = "443d26d654e0324125a96bebd8e796c14ff2efe6"
 MODEL_LICENSE = "apache-2.0"
 MODEL_KEY = "gliner-multi-v2.1"
 ARTIFACT_FORMAT = "org.valcorza.gliner-ner.adapter.v1"
-ARTIFACT_FORMAT_VERSION = "1.1"  # 1.1 adds `adapter_manifest` (tensor names, shapes, dtypes, SHA-256)
+# 1.1 added `adapter_manifest` (tensor names, shapes, dtypes, SHA-256). 2.0 moves the artifact from a
+# pickle-based `torch.save` `.pt` file to `safetensors` (ARTIFACT_SPEC 2.0 SER7/SER10/SER11): the tensors are
+# the adapter state dict and every other field is plain JSON in the single header metadata key
+# `ARTIFACT_METADATA_KEY`.
+ARTIFACT_FORMAT_VERSION = "2.0"
+ARTIFACT_SUFFIX = ".safetensors"
+ARTIFACT_METADATA_KEY = "dimer_artifact"
 _WEIGHTS_ROOT = Path(__file__).resolve().parents[2] / "weights"
 DEFAULT_WEIGHTS_DIR = _WEIGHTS_ROOT / MODEL_KEY
 MANIFEST_NAME = "dimer-base-manifest.json"
@@ -305,6 +311,52 @@ def _tensor_record(tensor: Any) -> dict[str, Any]:
         "dtype": str(data.dtype).replace("torch.", ""),
         "sha256": hashlib.sha256(data.numpy().tobytes()).hexdigest(),
     }
+
+
+def _canonical_safetensors(raw: bytes) -> bytes:
+    """Re-emit a safetensors file with its JSON header keys sorted, so equal content gives equal bytes.
+
+    Tensor data offsets are relative to the end of the header, so re-ordering the header keys and re-padding
+    the header to 8 bytes leaves the data section and every offset unchanged.
+    """
+    header_len = int.from_bytes(raw[:8], "little")
+    header = json.loads(raw[8 : 8 + header_len])
+    text = json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    text += b" " * (-len(text) % 8)
+    return len(text).to_bytes(8, "little") + text + raw[8 + header_len :]
+
+
+def read_artifact_header(artifact_path: str | Path) -> dict[str, Any]:
+    """The plain-JSON fields of an adapter artifact (format, base model, manifest, metadata), without tensors.
+
+    Reads only the safetensors header; raises ValueError for a file that is not a readable safetensors file
+    or carries no `ARTIFACT_METADATA_KEY` JSON object.
+    """
+    from safetensors import SafetensorError, safe_open
+
+    path = Path(artifact_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Artifact file not found: {path}")
+    try:
+        with safe_open(str(path), framework="pt", device="cpu") as handle:
+            header_meta = handle.metadata() or {}
+    except (SafetensorError, OSError, ValueError) as exc:
+        raise ValueError(
+            f"Artifact is not a readable safetensors file (format {ARTIFACT_FORMAT_VERSION} adapters are "
+            f"`{ARTIFACT_SUFFIX}`): {exc}"
+        ) from exc
+    raw = header_meta.get(ARTIFACT_METADATA_KEY)
+    if raw is None:
+        raise ValueError(
+            f"Artifact header has no {ARTIFACT_METADATA_KEY!r} metadata: not a DIMER adapter artifact"
+        )
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Artifact {ARTIFACT_METADATA_KEY!r} metadata is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Invalid artifact format: expected a JSON object, got {type(payload).__name__}")
+    return payload
 
 
 def _parameter_summary(model: Any) -> dict[str, Any]:
@@ -622,11 +674,13 @@ class GLiNERPipeline:
         output_path: str | Path,
         metadata: dict[str, Any] | None = None,
     ) -> Path:
-        """Export adapter state dict and lineage metadata to a .pt artifact."""
+        """Export the adapter state dict to a `.safetensors` artifact with plain-JSON lineage metadata.
+
+        `metadata` must be JSON-serializable plain data (mappings, lists, strings, finite numbers, booleans,
+        null). Saving the same tensors and metadata twice gives identical bytes.
+        """
         if self.model is None:
             raise RuntimeError("Cannot save artifact: pipeline has no model loaded.")
-        import torch
-
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -652,30 +706,39 @@ class GLiNERPipeline:
                 "encoder_model_id": ENCODER_MODEL_ID,
                 "encoder_revision": ENCODER_REVISION,
             },
-            "adapter_state_dict": adapter_weights,
             "adapter_manifest": {name: _tensor_record(t) for name, t in sorted(adapter_weights.items())},
             "metadata": metadata or {},
         }
-        torch.save(payload, path)
+        try:
+            header_json = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Artifact metadata must be plain JSON data (mappings, lists, strings, finite numbers, "
+                f"booleans, null); encode other values (for example a path as a string) first: {exc}"
+            ) from exc
+        from safetensors.torch import save as safetensors_save
+
+        raw = safetensors_save(
+            {k: v.contiguous() for k, v in adapter_weights.items()},
+            metadata={ARTIFACT_METADATA_KEY: header_json},
+        )
+        path.write_bytes(_canonical_safetensors(raw))
         return path
 
     def load_artifact(self, artifact_path: str | Path) -> dict[str, Any]:
         """Load adapter state dict into the current pipeline's model."""
         if self.model is None:
             raise RuntimeError("Cannot load artifact: pipeline has no model loaded.")
-        import torch
-
         path = Path(artifact_path)
-        if not path.is_file():
-            raise FileNotFoundError(f"Artifact file not found: {path}")
-
-        payload = torch.load(path, map_location=self.device, weights_only=True)
-
-        if not isinstance(payload, dict):
-            raise ValueError(f"Invalid artifact format: expected dict, got {type(payload).__name__}")
+        payload = read_artifact_header(path)
         if payload.get("format") != ARTIFACT_FORMAT:
             raise ValueError(
                 f"Artifact format mismatch: {payload.get('format')!r} != {ARTIFACT_FORMAT!r}"
+            )
+        if payload.get("format_version") != ARTIFACT_FORMAT_VERSION:
+            raise ValueError(
+                f"Artifact format_version mismatch: {payload.get('format_version')!r} != "
+                f"{ARTIFACT_FORMAT_VERSION!r}"
             )
         base = payload.get("base_model", {})
         if base.get("model_id") != MODEL_ID:
@@ -694,8 +757,14 @@ class GLiNERPipeline:
                     "on a different base snapshot and cannot be overlaid on this one"
                 )
 
-        weights = payload.get("adapter_state_dict")
-        if not isinstance(weights, dict) or not weights:
+        from safetensors import SafetensorError
+        from safetensors.torch import load_file
+
+        try:
+            weights = load_file(str(path), device="cpu")
+        except (SafetensorError, OSError, ValueError) as exc:
+            raise ValueError(f"Artifact tensors could not be read: {exc}") from exc
+        if not weights:
             raise ValueError("Artifact adapter_state_dict is empty or missing: no adapter tensors to load")
         model_state = self.model.state_dict()
         unexpected = sorted(k for k in weights if k not in model_state)
@@ -708,12 +777,11 @@ class GLiNERPipeline:
         if mismatched:
             raise ValueError(f"Artifact tensor shapes differ from the model for {mismatched[:3]}")
         manifest = payload.get("adapter_manifest")
-        if manifest is not None or payload.get("format_version") != "1.0":
-            if not isinstance(manifest, dict) or sorted(manifest) != sorted(weights):
-                raise ValueError("Artifact adapter_manifest is missing or does not list exactly its tensors")
-            corrupt = sorted(k for k, v in weights.items() if _tensor_record(v) != manifest[k])
-            if corrupt:
-                raise ValueError(f"Adapter tensors differ from manifest: {corrupt[:3]}")
+        if not isinstance(manifest, dict) or sorted(manifest) != sorted(weights):
+            raise ValueError("Artifact adapter_manifest is missing or does not list exactly its tensors")
+        corrupt = sorted(k for k, v in weights.items() if _tensor_record(v) != manifest[k])
+        if corrupt:
+            raise ValueError(f"Adapter tensors differ from manifest: {corrupt[:3]}")
 
         weights = {
             k: v.to(self.device) if hasattr(v, "to") else v

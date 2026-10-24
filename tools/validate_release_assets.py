@@ -37,7 +37,7 @@ BYOD_GATES = ("USE_BYOD",)
 # Machine-readable artifacts the notebook must write (OUT1-OUT3, DAT24, EVAL21).
 EXPECTED_OUTPUTS = (
     "outputs/gliner_ner_evaluation_report.json",
-    "outputs/gliner_ner_adapter.pt",
+    "outputs/gliner_ner_adapter.safetensors",
     "outputs/gliner_ner_result.json",
     "outputs/gliner_ner_entities.csv",
 )
@@ -251,6 +251,8 @@ FORBIDDEN_PATTERNS = (
     ("repository package import (ST1)", re.compile(rf"^\s*(?:from|import)\s+{PACKAGE}\b", re.M)),
     ("mutable model reference (MOD14)", re.compile(r"revision\s*=\s*['\"](?:main|latest)['\"]")),
     ("trust_remote_code enabled", re.compile(r"trust_remote_code\s*[=:]\s*True")),
+    # ARTIFACT_SPEC 2.0 SER7: the adapter artifact is safetensors; a pickle export must not come back
+    ("pickle artifact export (SER7)", re.compile(r"\btorch\.save\s*\(|\bpickle\.dumps?\s*\(")),
     (
         "unsafe deserialization",
         re.compile(

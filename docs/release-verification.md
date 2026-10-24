@@ -79,7 +79,7 @@ Before changing the registry status from `Candidate` to `Release-grade`:
    - Section 7: the adapted table, the deltas (+0.2332 micro F1 in the CPU check and the T4 record), the `Reading:`
      line and `outputs/gliner_ner_evaluation_report.json`;
    - Section 8: entities for the sample sentence with all three contract checks `True`;
-   - Section 9: `outputs/gliner_ner_adapter.pt` (26 tensors), `tensors_identical` equal to `tensors_compared` and every
+   - Section 9: `outputs/gliner_ner_adapter.safetensors` (26 tensors), `tensors_identical` equal to `tensors_compared` and every
      sentence identical;
    - Section 10: `outputs/gliner_ner_result.json` and `outputs/gliner_ner_entities.csv` listed with the other two files;
    - Section 11: one row in the run table;

@@ -110,11 +110,59 @@ estimates.
 |---|---|---|---|---|---|
 | 2026-09-17 | `58ee5df` / `ecbaee8862f1` | Kaggle T4 (`kurtvalcorza/dimer-nb2-gliner-ner` v2) | Default sample path of the previous notebook version (in-kernel pinned install) | 298.7 s | **Passed after a manual restart** after the install cell (the in-kernel install replaced loaded packages); +0.2332 micro F1; adapter reloaded. Not a one-pass Run all; not promotion evidence |
 | 2026-10-04 | `fe3d5ba` / `87a15e765580` | Colab CLI 0.7.4 sequential execution, fresh Colab Tesla T4 (not a browser Run all) | Default sample path, every form field at its default | 142.8 s | **One pass, no restart, 0 errors**, 16/16 code cells; baseline micro F1 0.6857 → adapted 0.9189 (+0.2332); adapter reload 26/26 tensors, 7/7 sentences |
+| 2026-10-25 | `999aa42` / `ee9317cc7bbf` | Colab CLI sequential execution, fresh Colab Tesla T4 (not a browser Run all) | Default sample path, every form field at its default; safetensors adapter | 131.0 s | **One pass, no restart, 0 errors**, 16/16 code cells; baseline micro F1 0.6857 → adapted 0.9189 (+0.2332); `gliner_ner_adapter.safetensors` reload 26/26 tensors, 7/7 sentences |
 
 The 2026-09-17 record ran the previous notebook version; the notebook was regenerated afterwards (review PR #10: uv
-isolated environment, guided layer, BYOD and reload fixes). The 2026-10-04 record covers the current blob.
+isolated environment, guided layer, BYOD and reload fixes). The 2026-10-04 record covers blob `87a15e765580` and is history (REL14); the 2026-10-25 record covers the current blob `ee9317cc` (PR #11, safetensors adapter format 2.0).
 
-### 2026-10-04 — Colab CLI, fresh Colab Tesla T4, blob `87a15e765580`
+### 2026-10-25 — Colab CLI, fresh Colab Tesla T4, blob `ee9317cc7bbf`
+
+- **Commit / notebook blob:** `999aa42b692b1b3396025e933e7b70f2fd43a813` (main, the merge of PR #11) / `ee9317cc7bbfcff52e822d3d0c5d3361dfaf7967`
+  (fetched byte-exact at the commit and Git-blob verified before the session; `run_summary.json` records
+  `input_unchanged` true, `verdict` `PASS`, `exec_exit_code` 0, `stop_verified` true, no overrides).
+- **Executor:** Colab CLI sequential execution (`colab exec -f`) on a fresh Colab VM, Tesla T4, session released afterwards.
+  Not a browser **Run all**: forms were not rendered, no upload dialog was answered, and the CLI records no execution
+  counts; order is evidenced by `exec.log` (`Executing cell 1/16` … `16/16`).
+- **Path:** default settings only (`USE_BYOD = False`, `SEED = 42`, `EPOCHS = 3`, `LEARNING_RATE = 5e-5`,
+  `BATCH_SIZE = 4`, `VAL_FRACTION = 0.25`).
+- **Outcome:** one pass, no restart, 0 error outputs; 16/16 code cells (13 print output; cells 4–6, the carried modules,
+  print nothing by design). Wall time 131.0 s.
+- **Runtime (Section 1):** isolated Python 3.12.12 (kernel 3.13.16), 50 locked packages, setup 58 s; `torch`
+  2.14.0+cu130, `transformers` 4.57.6, `gliner` 0.2.29, CUDA available, device `cuda:0`;
+  `NOTEBOOK_SOURCE.repository_revision` `d13dfb0`, generator `build_notebook.py/2.1`.
+- **Sections 3–4:** 3 GLiNER files and 4 encoder files fetched and verified; 24 records split 18 / 6, no label missing
+  from validation, four rejected probes.
+- **Section 5 baseline:** micro F1 0.6857 (P 0.7059, R 0.6667), macro F1 0.6375.
+- **Section 6:** 11,418,112 trainable / 277,531,392 frozen parameters; "Adaptation completed in 1.7 s"; epochs loss
+  11.2028 / 9.7951 / 5.6869, validation micro F1 0.8571 / 0.9189 / 0.9189.
+- **Section 7 adapted:** micro F1 0.9189 (P 0.8947, R 0.9444), macro F1 0.9188; deltas +0.2332 micro, +0.2813 macro
+  (`gene_protein` +0.7009, `chemical_drug` +0.1429, `disease` 0.0).
+- **Safetensors adapter save and reload (first hosted exercise of this path; CI has no torch):** the run printed
+  `Saved adapter artifact: outputs/gliner_ner_adapter.safetensors (43.56 MB, 26 tensors)`, then
+  `{'reload_parity': {'adapter_tensors': {'tensors_compared': 26, 'tensors_identical': 26, 'differing': []}, 'sentences_compared': 7, 'sentences_identical': 7}}`
+  and `Parity verification passed: the reloaded artifact has identical adapter tensors and identical predictions.`
+  Section 10 listed `gliner_ner_adapter.safetensors (44609.8 KB)`, `gliner_ner_entities.csv`,
+  `gliner_ner_evaluation_report.json` and `gliner_ner_result.json`.
+- **Sections 8, 11:** 3 entities on the sample sentence (`chemical_drug` 0.9959, `gene_protein` 0.9648, `disease` 0.9950),
+  all contract checks `True`; one row in the run table.
+- **Differences from the 2026-10-04 run (blob `87a15e765580`):** the adapter file is `gliner_ner_adapter.safetensors`
+  (43.56 MB) where it was `gliner_ner_adapter.pt` (43.57 MB), 26 tensors both times; the training history differs
+  (losses 11.3457 / 8.9581 / 6.8758 and validation micro F1 0.8108 / 0.9189 / 0.9189 then); kernel Python 3.13.15 then;
+  setup 48 s and wall 142.8 s then; carried revision `04b30e6` then. Baseline and adapted metrics, deltas, the sample
+  entities and the reload parity counts are the same.
+- **Evidence files** (`docs/verification/2026-10-25-colab-t4/`; local paths redacted byte-wise to `<local-run-dir>`; the
+  executed notebook's SHA-256 equals the summary's `executed_sha256`):
+
+| File (under `docs/verification/2026-10-25-colab-t4/`) | Captured SHA-256 | Committed SHA-256 |
+|---|---|---|
+| `gliner_ner_colab_999aa42_colab-cli-t4_default.ipynb` | `1f6deb1e55a177d93de913a109f5febe5d403d14e18b2d14c96a9441072ad4c1` | `1f6deb1e55a177d93de913a109f5febe5d403d14e18b2d14c96a9441072ad4c1` (unchanged, no local path) |
+| `gliner_ner_colab_999aa42_colab-cli-t4_default_exec.log` | `715af6b1ba9b3dfb449e803be09f92a394b3bdb9e7a26508bb702745003e2017` | `20e14aca7d41f3752222c5adec8a8431c6f9547553f0fb1c87861c30ff9f7ffb` (2 local-path replacements) |
+| `gliner_ner_colab_999aa42_colab-cli-t4_default_run_summary.json` | `ce2b98e58bdf84b0aace1ec20fb9e39911d7b84388e0385ae538f02117a0d4b2` | `ce2b98e58bdf84b0aace1ec20fb9e39911d7b84388e0385ae538f02117a0d4b2` (unchanged, no local path) |
+
+- **Not exercised:** the BYOD positive and negative runs (procedure step 6), the Colab upload dialog, the optional
+  guided activities (Section 11 one-epoch row), and a browser **Run all**.
+
+### 2026-10-04 — Colab CLI, fresh Colab Tesla T4, blob `87a15e765580` (history, REL14)
 
 - **Commit / notebook blob:** `fe3d5ba6dad24691471ebd1fd2b38f4931b417d0` / `87a15e765580cf8c7d65d6bbe0f2604a42953c0d`
   (fetched byte-exact from `raw.githubusercontent.com` at the commit; blob checked before the VM was allocated).
@@ -147,7 +195,7 @@ isolated environment, guided layer, BYOD and reload fixes). The 2026-10-04 recor
 
 ## Current status
 
-**Candidate.** Static checks pass. The current blob (`87a15e765580`, commit `fe3d5ba`) completed one hosted pass with
-no restart and no errors on a fresh Colab Tesla T4 (Colab CLI sequential execution, 2026-10-04, default path). Still
-required before promotion: a one-pass **Run all** in the supported Colab path (or a Kaggle fresh-container run) as the
-procedure defines it, and the BYOD positive and negative runs (step 6).
+**Candidate.** Static checks pass. The current blob `ee9317cc7bbfcff52e822d3d0c5d3361dfaf7967` (main `999aa42`, safetensors
+adapter format 2.0) completed one hosted pass with no restart and no errors on a fresh Colab Tesla T4 (Colab CLI
+sequential execution, 2026-10-25), covering the default path including the safetensors save and reload. Remaining gates: **REL12** (a hosted BYOD run in which one representative input is accepted through the downstream stages and one incompatible input is refused) and **REL2** (a browser run of the interactive journeys: forms and the BYOD upload dialog).
+The 2026-10-04 run of blob `87a15e765580` and the 2026-09-17 Kaggle run are history (REL14).

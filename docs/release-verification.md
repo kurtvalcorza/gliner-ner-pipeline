@@ -113,7 +113,7 @@ estimates.
 | 2026-10-25 | `999aa42` / `ee9317cc7bbf` | Colab CLI sequential execution, fresh Colab Tesla T4 (not a browser Run all) | Default sample path, every form field at its default; safetensors adapter | 131.0 s | **One pass, no restart, 0 errors**, 16/16 code cells; baseline micro F1 0.6857 → adapted 0.9189 (+0.2332); `gliner_ner_adapter.safetensors` reload 26/26 tensors, 7/7 sentences |
 
 The 2026-09-17 record ran the previous notebook version; the notebook was regenerated afterwards (review PR #10: uv
-isolated environment, guided layer, BYOD and reload fixes). The 2026-10-04 record covers blob `87a15e765580` and is history (REL14); the 2026-10-25 record covers the current blob `ee9317cc` (PR #11, safetensors adapter format 2.0).
+isolated environment, guided layer, BYOD and reload fixes). The 2026-10-04 record covers blob `87a15e765580` and is history (REL14); the 2026-10-25 record covers blob `ee9317cc` (PR #11, safetensors adapter format 2.0).
 
 ### 2026-10-25 — Colab CLI, fresh Colab Tesla T4, blob `ee9317cc7bbf`
 
@@ -195,7 +195,9 @@ isolated environment, guided layer, BYOD and reload fixes). The 2026-10-04 recor
 
 ## Current status
 
-**Candidate.** Static checks pass. The current blob `ee9317cc7bbfcff52e822d3d0c5d3361dfaf7967` (main `999aa42`, safetensors
+**Candidate.** Static checks pass. Blob `ee9317cc7bbfcff52e822d3d0c5d3361dfaf7967` (main `999aa42`, safetensors
 adapter format 2.0) completed one hosted pass with no restart and no errors on a fresh Colab Tesla T4 (Colab CLI
 sequential execution, 2026-10-25), covering the default path including the safetensors save and reload. Remaining gates: **REL12** (a hosted BYOD run in which one representative input is accepted through the downstream stages and one incompatible input is refused) and **REL2** (a browser run of the interactive journeys: forms and the BYOD upload dialog).
 The 2026-10-04 run of blob `87a15e765580` and the 2026-09-17 Kaggle run are history (REL14).
+
+The current blob `fffcf3fd` (code commit `df85f4e`) shows a refused BYOD input as one `Refused: <file>: <reason>` line with no traceback, removes the earlier run's results and `outputs/` files and stops Run all at that cell, while genuine failures keep their traceback (NOTEBOOK_SPEC DAT19/DAT20); its hosted Colab T4 runs (the default path and a scripted refusal, `USE_BYOD=True;BYOD_PATH='/etc/hostname'`) are pending, and the hosted runs of earlier blobs, including `ee9317cc7bbf`, are history for it (REL14).

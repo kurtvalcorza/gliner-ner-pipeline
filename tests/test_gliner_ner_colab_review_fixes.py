@@ -203,12 +203,12 @@ def test_csv_and_object_spans_and_bad_json_get_schema_messages(tmp_path):
 
 def test_cancelled_upload_missing_path_and_no_colab_are_actionable(monkeypatch, tmp_path):
     _fake_colab(monkeypatch, [{}])
-    with pytest.raises(ValueError, match=r"Upload exactly one \.json or \.jsonl file \(received 0\)"):
+    with pytest.raises(ValueError, match=r"^\(no file\): upload exactly one \.json or \.jsonl file \(received 0"):
         _section4(monkeypatch, tmp_path)
-    with pytest.raises(FileNotFoundError, match="is not a file in this runtime"):
+    with pytest.raises(ValueError, match="is not a file in this runtime"):
         _section4(monkeypatch, tmp_path, BYOD_PATH=str(tmp_path / "nope.jsonl"))
     monkeypatch.setitem(sys.modules, "google.colab", None)
-    with pytest.raises(RuntimeError, match="needs Google Colab. Elsewhere, .* set BYOD_PATH"):
+    with pytest.raises(ValueError, match="^\\(no file\\): the upload dialog needs Google Colab. Elsewhere, .* set BYOD_PATH"):
         _section4(monkeypatch, tmp_path)
 
 
